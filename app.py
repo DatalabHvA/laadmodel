@@ -29,7 +29,7 @@ def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aan
     return_df = pd.DataFrame({'energie' : energy[:-1],
                              'bijladen' : bijladen,
                              'bijladen_snel' : bijladen_snel,
-							 'rownumber' : df2['rownumber']}, index = df2.index)
+							 'index' : df2['index']}, index = df2.index)
 
     return return_df
 
@@ -117,7 +117,7 @@ def process_excel_file(file):
 	
     df_params = pd.read_excel(file, sheet_name = 'parameters').set_index('naam')
 	
-	df = df.reset_index(name = 'rownumber')
+    df = df.reset_index()
 	
     df_results = (df.
     		groupby('Voertuig').
@@ -127,7 +127,7 @@ def process_excel_file(file):
     #			aansluittijd = df_params.loc['aansluittijd'].waarde,
     #			laadvermogen = df_params.loc['laadvermogen'].waarde)))
 
-    df = df.merge(df_results, on = 'rownumber', how = 'left')
+    df = df.merge(df_results, on = 'index', how = 'left')
 
     return df
 
@@ -192,7 +192,7 @@ def main():
     if uploaded_file is not None:
         try:
             df = process_excel_file(uploaded_file)
-            #plot_scatter(df)
+            plot_scatter(df)
             download_excel(df)
         except Exception as e:
             st.error(f'Error processing the file: {e}')
