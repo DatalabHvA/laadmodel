@@ -6,7 +6,6 @@ from io import BytesIO
 import numpy as np
 
 def simulate(df2, zuinig = 1, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 600, battery = 300):
-    #print(df2.Voertuig.iloc[0])
 
     df2['Laadtijd'] = np.where((df2['thuis'] == 1) & (df2['Laden'] == 1), df2['Duur'],0) # alleen thuis laden
 
@@ -14,9 +13,9 @@ def simulate(df2, zuinig = 1, laadvermogen = 44, laadvermogen_snel = 150, aanslu
     energy = [battery]
     bijladen = []
     bijladen_snel = []
-
+    
     for i in range(df2.shape[0]):
-        #print(str(i))
+    
         afstand = df2.iloc[i]['Afstand']
         energie_update = energy[i] - (zuinig*afstand)
         
@@ -118,13 +117,13 @@ def process_excel_file(file):
 	
     df_params = pd.read_excel(file, sheet_name = 'parameters').set_index('naam')
 	
-    df_results = (df.
-    		groupby('Voertuig').
-    		apply(lambda g: simulate(g, 
-    			battery = df_params.loc['accu'].waarde,
-    			zuinig = df_params.loc['efficiency'].waarde,
-    			aansluittijd = df_params.loc['aansluittijd'].waarde,
-    			laadvermogen = df_params.loc['laadvermogen'].waarde)))
+    #df_results = (df.
+    #		groupby('Voertuig').
+    #		apply(lambda g: simulate(g, 
+    #			battery = df_params.loc['accu'].waarde,
+    #			zuinig = df_params.loc['efficiency'].waarde,
+    #			aansluittijd = df_params.loc['aansluittijd'].waarde,
+    #			laadvermogen = df_params.loc['laadvermogen'].waarde)))
 
     #df['energie'] = df_results['energie']
     #df['bijladen'] = df_results['bijladen']
