@@ -129,7 +129,7 @@ def process_excel_file(file):
 
     df = df.merge(df_results, on = 'index', how = 'left')
 
-    return df
+    return df.drop(['index'], axis = 1)
 
 
 def plot_scatter(df):
