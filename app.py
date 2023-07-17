@@ -126,11 +126,11 @@ def process_excel_file(file):
     			aansluittijd = df_params.loc['aansluittijd'].waarde,
     			laadvermogen = df_params.loc['laadvermogen'].waarde)))
 
-    df['energie'] = df_results['energie']
-    df['bijladen'] = df_results['bijladen']
-    df['bijladen_snel'] = df_results['bijladen_snel']
+    #df['energie'] = df_results['energie']
+    #df['bijladen'] = df_results['bijladen']
+    #df['bijladen_snel'] = df_results['bijladen_snel']
 
-    return df
+    return df_results
 
 
 def plot_scatter(df):
@@ -193,7 +193,7 @@ def main():
     if uploaded_file is not None:
         try:
             df = process_excel_file(uploaded_file)
-            plot_scatter(df)
+            #plot_scatter(df)
             download_excel(df)
         except Exception as e:
             st.error(f'Error processing the file: {e}')
