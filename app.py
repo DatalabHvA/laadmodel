@@ -111,7 +111,7 @@ def process_excel_file(file):
                       apply(lambda g: (g['nacht'] < g.shift().fillna(method='bfill')['nacht']).cumsum()))
 
     df_locatie = pd.read_excel(file, sheet_name = 'laadlocaties').assign(thuis = 1)
-    df = df.merge(df_locatie, how = 'left')
+    df = df.merge(df_locatie, how = 'left', on = 'Positie')
     df['thuis'] = df.thuis.fillna(0)
 	
     df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index(drop = True)
