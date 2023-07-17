@@ -1,4 +1,3 @@
 xlsxwriter
 matplotlib
 pandas
-io
