@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import requests
 from io import BytesIO
 
 
@@ -39,8 +40,25 @@ def download_excel(df):
     st.download_button('Download Excel file', excel_data, file_name='modified_file.xlsx')
 
 
+def download_template():
+    # Template file URL
+    template_url = 'https://github.com/DatalabHvA/laadmodel/raw/main/template.xlsx'
+
+    # Request the template file
+    response = requests.get(template_url)
+
+    # Create a BytesIO object
+    template_data = BytesIO(response.content)
+
+    # Offer the file download
+    st.download_button('Download Template', template_data, file_name='template.xlsx')
+
+
 def main():
     st.title('Excel File Processor')
+
+    # Download template button
+    download_template()
 
     # File upload
     uploaded_file = st.file_uploader('Upload Excel file', type=['xlsx'])
