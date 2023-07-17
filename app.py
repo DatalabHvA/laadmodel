@@ -118,15 +118,15 @@ def process_excel_file(file):
 	
     df_params = pd.read_excel(file, sheet_name = 'parameters').set_index('naam')
 	
-    df = df.merge(df.
-    		groupby('Voertuig').
-    		apply(lambda g: simulate(g, 
-    			battery = df_params.loc['accu'].waarde,
-    			zuinig = df_params.loc['efficiency'].waarde,
-    			aansluittijd = df_params.loc['aansluittijd'].waarde,
-    			laadvermogen = df_params.loc['laadvermogen'].waarde)), 
-    		left_index = True, 
-    		right_index = True)
+    #df = df.merge(df.
+    #		groupby('Voertuig').
+    #		apply(lambda g: simulate(g, 
+    #			battery = df_params.loc['accu'].waarde,
+    #			zuinig = df_params.loc['efficiency'].waarde,
+    #			aansluittijd = df_params.loc['aansluittijd'].waarde,
+    #			laadvermogen = df_params.loc['laadvermogen'].waarde)), 
+    #		left_index = True, 
+    #		right_index = True)
 
     return df
 
