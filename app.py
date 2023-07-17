@@ -118,13 +118,17 @@ def process_excel_file(file):
 	
     df_params = pd.read_excel(file, sheet_name = 'parameters').set_index('naam')
 	
-    df = df.join(df.
+    df_results = (df.
     		groupby('Voertuig').
     		apply(lambda g: simulate(g, 
     			battery = df_params.loc['accu'].waarde,
     			zuinig = df_params.loc['efficiency'].waarde,
     			aansluittijd = df_params.loc['aansluittijd'].waarde,
     			laadvermogen = df_params.loc['laadvermogen'].waarde)))
+
+    df['energie'] = df_results['energie']
+    df['bijladen'] = df_results['bijladen']
+    df['bijladen_snel'] = df_results['bijladen_snel']
 
     return df
 
