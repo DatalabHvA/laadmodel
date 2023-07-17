@@ -9,7 +9,6 @@ def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aan
 
     df2['Laadtijd'] = np.where((df2['thuis'] == 1) & (df2['Laden'] == 1), df2['Duur'],0) # alleen thuis laden
 
-
     energy = [battery]
     bijladen = []
     bijladen_snel = []
@@ -29,7 +28,8 @@ def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aan
         energy.append(energie_update)
     return_df = pd.DataFrame({'energie' : energy[:-1],
                              'bijladen' : bijladen,
-                             'bijladen_snel' : bijladen_snel}, index = df2.index)
+                             'bijladen_snel' : bijladen_snel,
+							 'rownumber' : df2['rownumber']}, index = df2.index)
 
     return return_df
 
@@ -117,6 +117,8 @@ def process_excel_file(file):
 	
     df_params = pd.read_excel(file, sheet_name = 'parameters').set_index('naam')
 	
+	df = df.reset_index(name = 'rownumber')
+	
     df_results = (df.
     		groupby('Voertuig').
     		apply(lambda g: simulate(g)))#, 
@@ -125,9 +127,7 @@ def process_excel_file(file):
     #			aansluittijd = df_params.loc['aansluittijd'].waarde,
     #			laadvermogen = df_params.loc['laadvermogen'].waarde)))
 
-    df['energie'] = df_results['energie']
-    df['bijladen'] = df_results['bijladen']
-    df['bijladen_snel'] = df_results['bijladen_snel']
+    df = df.merge(df_results, on = 'rownumber', how = 'left')
 
     return df
 
@@ -192,7 +192,7 @@ def main():
     if uploaded_file is not None:
         try:
             df = process_excel_file(uploaded_file)
-            plot_scatter(df)
+            #plot_scatter(df)
             download_excel(df)
         except Exception as e:
             st.error(f'Error processing the file: {e}')
