@@ -129,7 +129,7 @@ def process_excel_file(file):
     #df['bijladen'] = df_results['bijladen']
     #df['bijladen_snel'] = df_results['bijladen_snel']
 
-    return df_results
+    return df
 
 
 def plot_scatter(df):
