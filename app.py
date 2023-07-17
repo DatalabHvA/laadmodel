@@ -117,9 +117,9 @@ def process_excel_file(file):
 	
     df_params = pd.read_excel(file, sheet_name = 'parameters').set_index('naam')
 	
-    #df_results = (df.
-    #		groupby('Voertuig').
-    #		apply(lambda g: simulate(g, 
+    df_results = (df.
+    		groupby('Voertuig').
+    		apply(lambda g: simulate(g)))#, 
     #			battery = df_params.loc['accu'].waarde,
     #			zuinig = df_params.loc['efficiency'].waarde,
     #			aansluittijd = df_params.loc['aansluittijd'].waarde,
@@ -129,7 +129,7 @@ def process_excel_file(file):
     #df['bijladen'] = df_results['bijladen']
     #df['bijladen_snel'] = df_results['bijladen_snel']
 
-    return df
+    return df_results
 
 
 def plot_scatter(df):
