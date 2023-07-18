@@ -57,6 +57,17 @@ def charge_hour(df, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 6
     df_hour['hour'] = df_hour['StartTime'].dt.hour
     return df_hour
 
+def check_file(file):
+	
+    xl = pd.ExcelFile(file)
+    sheetnames = xl.sheet_names  # see all sheet names
+
+    # Check if the DataFrame has the required column name
+    if sorted(sheetnames) != ['laadlocaties', 'laden', 'parameters', 'ritten']:
+        error_message = 'het inputbestand moet sheets bevatten met de namen "ritten", "laden", "parameters" en "laadlocaties".'
+        st.error(error_message)
+        st.stop()
+
 def get_params(file):
     
     df_params = pd.read_excel(file, sheet_name = 'parameters').set_index('naam')
@@ -194,6 +205,7 @@ def main():
 
     if uploaded_file is not None:
         try:
+            check_file(uploaded_file)
             battery, zuinig, aansluittijd, laadvermogen = get_params(uploaded_file)
             df = process_excel_file(uploaded_file, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)
             plot_scatter(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)
