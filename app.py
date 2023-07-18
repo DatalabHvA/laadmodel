@@ -57,7 +57,18 @@ def charge_hour(df, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 6
     df_hour['hour'] = df_hour['StartTime'].dt.hour
     return df_hour
 
-def process_excel_file(file):
+def get_params(file):
+    
+    df_params = pd.read_excel(file, sheet_name = 'parameters').set_index('naam')
+	
+    battery = df_params.loc['accu'].waarde
+    zuinig = df_params.loc['efficiency'].waarde
+    aansluittijd = df_params.loc['aansluittijd'].waarde
+    laadvermogen = df_params.loc['laadvermogen'].waarde
+	
+    return battery, zuinig, aansluittijd, laadvermogen
+
+def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen):
     # Read the Excel file into a DataFrame
     df = pd.read_excel(file, sheet_name = 'ritten')
     df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index(drop = True)
@@ -113,36 +124,28 @@ def process_excel_file(file):
     df = df.merge(df_locatie, how = 'left', on = 'Positie')
     df['thuis'] = df.thuis.fillna(0)
 	
-    df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index(drop = True)
-	
-    df_params = pd.read_excel(file, sheet_name = 'parameters').set_index('naam')
-	
-    df = df.reset_index()
+    df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index()
 	
     df_results = (df.
     		groupby('Voertuig').
-    		apply(lambda g: simulate(g)))#, 
-    #			battery = df_params.loc['accu'].waarde,
-    #			zuinig = df_params.loc['efficiency'].waarde,
-    #			aansluittijd = df_params.loc['aansluittijd'].waarde,
-    #			laadvermogen = df_params.loc['laadvermogen'].waarde)))
+    		apply(lambda g: simulate(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)))
 
     df = df.merge(df_results, on = 'index', how = 'left')
 
     return df.drop(['index'], axis = 1)
 
 
-def plot_scatter(df):
+def plot_scatter(df, battery = 300, zuinig = 1.25, aansluittijd = 600, laadvermogen = 44):
     # Create a scatter plot
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12))
 
     n_days = max(1,(df['Begindatum en -tijd'].max()-df['Begindatum en -tijd'].min()).days)
 
-    (charge_hour(df, smart = 0).groupby('hour').bijladen.sum()/n_days).plot(ax = ax1)
+    (charge_hour(df, smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days).plot(ax = ax1)
     ax1.set_ylabel('Energievraag zonder smart charging (kW)')
     ax1.set_ylim(bottom=-0.5)
 
-    (charge_hour(df, smart = 1).groupby('hour').bijladen.sum()/n_days).plot(ax = ax2)
+    (charge_hour(df, smart = 1, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days).plot(ax = ax2)
     ax2.set_ylabel('Energievraag met smart charging (kW)')
     ax2.set_ylim(bottom=-0.5)
 	
@@ -191,8 +194,9 @@ def main():
 
     if uploaded_file is not None:
         try:
-            df = process_excel_file(uploaded_file)
-            plot_scatter(df)
+            battery, zuinig, aansluittijd, laadvermogen = get_params(uploaded_file)
+            df = process_excel_file(uploaded_file, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)
+            plot_scatter(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)
             download_excel(df)
         except Exception as e:
             st.error(f'Error processing the file: {e}')
