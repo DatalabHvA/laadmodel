@@ -5,10 +5,17 @@ import requests
 from io import BytesIO
 import numpy as np
 
-def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 600, battery = 300):
+def simulate2(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 600, battery = 300, nachtladen = 0, activiteitenladen = 0):
 
-    df2['Laadtijd'] = np.where((df2['thuis'] == 1) & (df2['Laden'] == 1), df2['Duur'],0) # alleen thuis laden
-
+    if (nachtladen == 0) & (activiteitenladen == 0):
+    	df2['Laadtijd'] = np.where((df2['thuis'] == 1), df2['Duur'],0) # alleen thuis laden
+    elif (nachtladen == 1) & (activiteitenladen == 0):
+    	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['nacht'] == 1), df2['Duur'],0) # thuis of 's nachts laden
+    elif (nachtladen == 0) & (activiteitenladen == 1):
+    	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1), df2['Duur'],0) # thuis of tijdens activiteit
+    elif (nachtladen == 1) & (activiteitenladen == 1):
+    	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1) | (df2['nacht'] == 1), df2['Duur'],0) # thuis, 's nachts of tijdens activiteit 		
+		
     energy = [battery]
     bijladen = []
     bijladen_snel = []
@@ -19,6 +26,41 @@ def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aan
         energie_update = energy[i] - (zuinig*afstand)
         
         bijladen_snel_update = -energie_update if energie_update < 0 else 0
+        energie_update = energie_update + bijladen_snel_update
+        bijladen_snel.append(bijladen_snel_update)
+        
+        bijladen_update = min(laadvermogen*(max(0, df2.iloc[i]['Laadtijd']-aansluittijd)/3600), battery - energie_update)
+        energie_update = energie_update + bijladen_update
+        bijladen.append(bijladen_update)
+        energy.append(energie_update)
+    return_df = pd.DataFrame({'energie' : energy[:-1],
+                             'bijladen' : bijladen,
+                             'bijladen_snel' : bijladen_snel,
+							 'index' : df2['index']}, index = df2.index)
+
+    return return_df
+
+def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 600, battery = 300, nachtladen = 0, activiteitenladen = 0):
+
+    if (nachtladen == 0) & (activiteitenladen == 0):
+    	df2['Laadtijd'] = np.where((df2['thuis'] == 1), df2['Duur'],0) # alleen thuis laden
+    elif (nachtladen == 1) & (activiteitenladen == 0):
+    	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['nacht'] == 1), df2['Duur'],0) # thuis of 's nachts laden
+    elif (nachtladen == 0) & (activiteitenladen == 1):
+    	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1), df2['Duur'],0) # thuis of tijdens activiteit
+    elif (nachtladen == 1) & (activiteitenladen == 1):
+    	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1) | (df2['nacht'] == 1), df2['Duur'],0) # thuis, 's nachts of tijdens activiteit 		
+
+    energy = [battery]
+    bijladen = []
+    bijladen_snel = []
+    
+    for i in range(df2.shape[0]):
+    
+        afstand = df2.iloc[i]['Afstand']
+        energie_update = energy[i] - (zuinig*afstand)
+        
+        bijladen_snel_update = 0
         energie_update = energie_update + bijladen_snel_update
         bijladen_snel.append(bijladen_snel_update)
         
@@ -64,7 +106,7 @@ def check_file(file):
 
     # Check if the DataFrame has the required column name
     if sorted(sheetnames) != ['laadlocaties', 'laden', 'parameters', 'ritten']:
-        error_message = 'het inputbestand moet sheets bevatten met de namen "ritten", "laden", "parameters" en "laadlocaties".'
+        error_message = 'het inputbestand moet sheets bevatten met de namen "ritten", "laden", "parameters" en "laadlocaties". Gebruik het template als voorbeeld.'
         st.error(error_message)
         st.stop()
 
@@ -79,7 +121,7 @@ def get_params(file):
 	
     return battery, zuinig, aansluittijd, laadvermogen
 
-def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen):
+def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, nachtladen, activiteitenladen, snelwegladen):
     # Read the Excel file into a DataFrame
     df = pd.read_excel(file, sheet_name = 'ritten')
     df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index(drop = True)
@@ -137,10 +179,15 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen):
 	
     df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index()
 	
-    df_results = (df.
-    		groupby('Voertuig').
-    		apply(lambda g: simulate(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)))
-
+    if snelwegladen == 0: 
+    	df_results = (df.
+    			groupby('Voertuig').
+    			apply(lambda g: simulate(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen)))
+    else:
+    	df_results = (df.
+    			groupby('Voertuig').
+    			apply(lambda g: simulate2(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen)))
+    
     df = df.merge(df_results, on = 'index', how = 'left')
 
     return df.drop(['index'], axis = 1)
@@ -196,6 +243,7 @@ def download_template():
 
 def main():
     st.title('Laadmodel ZEC')
+	
 
     # Download template button
     download_template()
@@ -203,11 +251,15 @@ def main():
     # File upload
     uploaded_file = st.file_uploader('Upload Excelbestand met rittendata', type=['xlsx'])
 
+    nachtladen = st.checkbox('Altijd opladen tijdens overnachting op alle locaties')
+    activiteitenladen = st.checkbox('Ook opladen tijdens geselecteerde activiteiten')
+    snelwegladen = st.checkbox('Extra snelladen toestaan langs de snelweg')
+
     if uploaded_file is not None:
         try:
             check_file(uploaded_file)
             battery, zuinig, aansluittijd, laadvermogen = get_params(uploaded_file)
-            df = process_excel_file(uploaded_file, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)
+            df = process_excel_file(uploaded_file, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen, snelwegladen = snelwegladen)
             plot_scatter(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)
             download_excel(df)
         except Exception as e:
