@@ -208,11 +208,11 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, nachtl
 	
     if snelwegladen == 0: 
     	df_results = (df.
-    			groupby('Voertuig').
+    			groupby(['Voertuig', 'RitID']).
     			apply(lambda g: simulate(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen)))
     elif snelwegladen == 1:
     	df_results = (df.
-    			groupby('Voertuig').
+    			groupby(['Voertuig', 'RitID']).
     			apply(lambda g: simulate2(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen)))
     
     df = df.merge(df_results, on = 'index', how = 'left')
