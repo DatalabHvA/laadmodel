@@ -5,6 +5,24 @@ import requests
 from io import BytesIO
 import numpy as np
 
+def tekort_snel(df2, battery = 300, zuinig = 1.25):
+    verbruik_rit = df2.Afstand.sum()*zuinig
+
+    df2 = df2.sort_values('Begindatum en -tijd', ascending = False)
+    tekort2 = []
+    tekort1 = []
+
+    for i, row in df2.reset_index().iterrows():
+        tekort = min(min(df2.iloc[i].laad_potentiaal1,
+                     max(0,battery + df2.iloc[0:i+1].Afstand.sum()*zuinig - sum(tekort1) - sum(tekort2))),
+                     max(0,verbruik_rit - sum(tekort1) - sum(tekort2)))
+        tekort1.append(tekort)
+        
+        tekort_snel = max(0,df2.iloc[0:i+1].Afstand.sum()*zuinig - sum(tekort1) - sum(tekort2))
+        tekort2.append(tekort_snel)
+    return_df = pd.DataFrame({'bijladen_snel' : tekort2, 'bijladen' : tekort1}, index = df2.index)
+    return return_df   
+
 def simulate2(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 600, battery = 300, nachtladen = 0, activiteitenladen = 0):
 
     if (nachtladen == 0) & (activiteitenladen == 0):
@@ -16,28 +34,35 @@ def simulate2(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aa
     elif (nachtladen == 1) & (activiteitenladen == 1):
     	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1) | (df2['nacht'] == 1), df2['Duur'],0) # thuis, 's nachts of tijdens activiteit 		
 		
+    df2['Laadtijd'] = np.where((df2['Activiteit'] == 'Rijden') | (df2['Afstand'] >= 3), 0, df2['Duur']) # niet AC-laden tijdens rijden  		
+    df2['laad_potentiaal1'] =df2['Laadtijd'].apply(lambda x: min(battery,
+                                                           max(0,((x-aansluittijd)/3600))*laadvermogen))
+    df2 = df2.merge(tekort_snel(df2, battery = battery, zuinig = zuinig), left_index = True, right_index = True, how = 'left')
+    df2['bijladen_snel'] = df2['bijladen_snel'].fillna(0)
+    df2['bijladen'] = df2['bijladen'].fillna(0)
+   
     energy = [battery]
     bijladen = []
     bijladen_snel = []
-    
+
     for i in range(df2.shape[0]):
-    
-        afstand = df2.iloc[i]['Afstand']
-        energie_update = energy[i] - (zuinig*afstand)
+        verbruik = df2.iloc[i]['Afstand']
+        energie_update = energy[i] - (zuinig*verbruik)
         
-        bijladen_snel_update = -energie_update if energie_update < 0 else 0
+        bijladen_snel_update = df2.iloc[i]['bijladen_snel']
         energie_update = energie_update + bijladen_snel_update
         bijladen_snel.append(bijladen_snel_update)
         
-        bijladen_update = min(laadvermogen*(max(0, df2.iloc[i]['Laadtijd']-aansluittijd)/3600), battery - energie_update)
+        bijladen_update = df2.iloc[i]['bijladen']
         energie_update = energie_update + bijladen_update
         bijladen.append(bijladen_update)
+        
         energy.append(energie_update)
+    
     return_df = pd.DataFrame({'energie' : energy[:-1],
                              'bijladen' : bijladen,
                              'bijladen_snel' : bijladen_snel,
-							 'index' : df2['index']}, index = df2.index)
-
+    						 'index' : df2['index']}, index = df2.index)
     return return_df
 
 def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 600, battery = 300, nachtladen = 0, activiteitenladen = 0):
@@ -49,7 +74,9 @@ def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aan
     elif (nachtladen == 0) & (activiteitenladen == 1):
     	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1), df2['Duur'],0) # thuis of tijdens activiteit
     elif (nachtladen == 1) & (activiteitenladen == 1):
-    	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1) | (df2['nacht'] == 1), df2['Duur'],0) # thuis, 's nachts of tijdens activiteit 		
+    	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1) | (df2['nacht'] == 1), df2['Duur'],0) # thuis, 's nachts of tijdens activiteit
+
+    df2['Laadtijd'] = np.where((df2['Activiteit'] == 'Rijden') | (df2['Afstand'] >= 3), 0, df2['Duur']) # niet AC-laden tijdens rijden  		
 
     energy = [battery]
     bijladen = []
@@ -183,7 +210,7 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, nachtl
     	df_results = (df.
     			groupby('Voertuig').
     			apply(lambda g: simulate(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen)))
-    else:
+    elif snelwegladen == 1:
     	df_results = (df.
     			groupby('Voertuig').
     			apply(lambda g: simulate2(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen)))
@@ -261,6 +288,8 @@ def main():
             battery, zuinig, aansluittijd, laadvermogen = get_params(uploaded_file)
             df = process_excel_file(uploaded_file, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen, snelwegladen = snelwegladen)
             plot_scatter(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)
+            st.subheader('TEST: eerste 10 regels van de tabel')
+            st.dataframe(df.head(10))
             download_excel(df)
         except Exception as e:
             st.error(f'Error processing the file: {e}')
