@@ -34,7 +34,7 @@ def simulate2(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aa
     elif (nachtladen == 1) & (activiteitenladen == 1):
     	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1) | (df2['nacht'] == 1), df2['Duur'],0) # thuis, 's nachts of tijdens activiteit 		
 		
-    df2['Laadtijd'] = np.where((df2['Activiteit'] == 'Rijden') | (df2['Afstand'] >= 3), 0, df2['Duur']) # niet AC-laden tijdens rijden  		
+    df2['Laadtijd'] = np.where((df2['Activiteit'] == 'Rijden') | (df2['Afstand'] >= 3), 0, df2['Laadtijd']) # niet AC-laden tijdens rijden  		
     df2['laad_potentiaal1'] =df2['Laadtijd'].apply(lambda x: min(battery,
                                                            max(0,((x-aansluittijd)/3600))*laadvermogen))
     df2 = df2.merge(tekort_snel(df2, battery = battery, zuinig = zuinig), left_index = True, right_index = True, how = 'left')
@@ -76,7 +76,7 @@ def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aan
     elif (nachtladen == 1) & (activiteitenladen == 1):
     	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1) | (df2['nacht'] == 1), df2['Duur'],0) # thuis, 's nachts of tijdens activiteit
 
-    df2['Laadtijd'] = np.where((df2['Activiteit'] == 'Rijden') | (df2['Afstand'] >= 3), 0, df2['Duur']) # niet AC-laden tijdens rijden  		
+    df2['Laadtijd'] = np.where((df2['Activiteit'] == 'Rijden') | (df2['Afstand'] >= 3), 0, df2['Laadtijd']) # niet AC-laden tijdens rijden  		
 
     energy = [battery]
     bijladen = []
