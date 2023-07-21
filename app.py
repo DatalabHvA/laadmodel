@@ -295,7 +295,7 @@ def main():
             st.table(bijladen)
             plot_scatter(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)
             st.subheader('TEST: eerste 10 regels van de tabel')
-            st.dataframe(df.head(10))
+            st.dataframe(df.head(15))
             download_excel(df)
         except Exception as e:
             st.error(f'Error processing the file: {e}')
