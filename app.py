@@ -136,6 +136,12 @@ def check_file(file):
         error_message = 'het inputbestand moet sheets bevatten met de namen "ritten", "laden", "parameters" en "laadlocaties". Gebruik het template als voorbeeld.'
         st.error(error_message)
         st.stop()
+		
+    elif list(pd.read_excel(file, sheet_name = 'laden').columns) != ['Activiteit']:
+        error_message = 'De sheet "laden" moet alleen een kolom "Activiteit" bevatten met de activiteiten waarvoor laden is toegestaan (zie nieuw template).'
+        st.error(error_message)
+        st.stop()
+			
 
 def get_params(file):
     
