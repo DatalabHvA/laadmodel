@@ -176,8 +176,10 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, nachtl
     df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index(drop = True)
     
     #set which activities can be used for charging
-    df_act = pd.read_excel(file, sheet_name = 'laden')
+    df_act = pd.read_excel(file, sheet_name = 'laden').assign(Laden = 1)
     df = df.merge(df_act, how = 'left', on = 'Activiteit')
+    df['Laden'] = df.Laden.fillna(0)
+	
     if df.Voertuig.nunique() == 1: 
         df['activiteit_g'] = (df['Activiteit'] != df.shift().fillna(method='bfill')['Activiteit']).cumsum()
     else: 
@@ -287,6 +289,10 @@ def main():
             check_file(uploaded_file)
             battery, zuinig, aansluittijd, laadvermogen = get_params(uploaded_file)
             df = process_excel_file(uploaded_file, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen, snelwegladen = snelwegladen)
+            bijladen = df.groupby('Positie').bijladen.sum().reset_index()
+            bijladen = bijladen.append(pd.DataFrame({'Positie' : ['snelweg'],
+			                              'bijladen' : [df.bijladen_snel.sum()]})).sort_values(by = 'bijladen', ascending = False).rename(columns = {'bijladen': 'Hoeveelheid energie geladen (kWu)'})
+            st.table(bijladen)
             plot_scatter(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)
             st.subheader('TEST: eerste 10 regels van de tabel')
             st.dataframe(df.head(10))
