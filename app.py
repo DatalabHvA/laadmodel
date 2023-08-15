@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+from  matplotlib.colors import LinearSegmentedColormap
+import seaborn as sns
 import requests
 from io import BytesIO
 import numpy as np
@@ -224,18 +226,44 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, nachtl
 
     return df.drop(['index'], axis = 1)
 
+def show_haalbaarheid(df):
+    df['Datum'] = df.groupby('RitID')['Begindatum en -tijd'].transform(lambda x: x.min().date())
 
-def plot_scatter(df, battery = 300, zuinig = 1.25, aansluittijd = 600, laadvermogen = 44):
-    # Create a scatter plot
+    haalbaarheid = df.pivot_table(values = 'energie', index = 'Voertuig', columns = ['Datum'], aggfunc=lambda x: 1 if min(x) >= 0 else 0)
+    cmap=LinearSegmentedColormap.from_list('rg',["r","y", "g"], N=256) 
+    st.subheader('Haalbaarheid van de planning per dag en voertuig')
+    fig1 = plt.figure(figsize=(10, 4))
+    sns.heatmap(haalbaarheid, annot=True, cmap = cmap, vmin=0, vmax=1, linewidths=1, linecolor='black')
+    st.pyplot(fig1)
+ 
+def show_demand_table(df):
+    st.subheader('Tabel met hoeveelheid geladen energie per locatie')
+    bijladen = df.groupby('Positie').bijladen.sum().reset_index()
+    bijladen = pd.concat([bijladen,pd.DataFrame({'Positie' : ['snelweg'],
+	    'bijladen' : [df.bijladen_snel.sum()]})]).sort_values(by = 'bijladen', ascending = False).rename(columns = {'bijladen': 'Hoeveelheid energie geladen (kWu)'})
+    st.table(bijladen)
+
+
+def plot_demand(df, battery = 300, zuinig = 1.25, aansluittijd = 600, laadvermogen = 44):
+    
+    filter_options = list(df.loc[lambda d: d.bijladen >0].Positie.unique())
+    highest_demand = df.groupby('Positie')['bijladen'].sum().idxmax()
+    default_idx = filter_options.index(highest_demand)
+    st.subheader('De gemiddelde verdeling van de energievraag over de dag')
+    filter_option = st.selectbox('Selecteer een locatie', df.loc[lambda d: d.bijladen >0].Positie.unique(), index = default_idx)
+
+    df_plot = df.loc[df.Positie == filter_option]
+	
+	# Create a demand plot
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12))
 
     n_days = max(1,(df['Begindatum en -tijd'].max()-df['Begindatum en -tijd'].min()).days)
 
-    (charge_hour(df, smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days).plot(ax = ax1)
+    (charge_hour(df_plot, smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days).plot(ax = ax1)
     ax1.set_ylabel('Energievraag zonder smart charging (kW)')
     ax1.set_ylim(bottom=-0.5)
 
-    (charge_hour(df, smart = 1, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days).plot(ax = ax2)
+    (charge_hour(df_plot, smart = 1, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days).plot(ax = ax2)
     ax2.set_ylabel('Energievraag met smart charging (kW)')
     ax2.set_ylim(bottom=-0.5)
 	
@@ -292,11 +320,10 @@ def main():
             check_file(uploaded_file)
             battery, zuinig, aansluittijd, laadvermogen = get_params(uploaded_file)
             df = process_excel_file(uploaded_file, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen, snelwegladen = snelwegladen)
-            bijladen = df.groupby('Positie').bijladen.sum().reset_index()
-            bijladen = pd.concat([bijladen,pd.DataFrame({'Positie' : ['snelweg'],
-			                              'bijladen' : [df.bijladen_snel.sum()]})]).sort_values(by = 'bijladen', ascending = False).rename(columns = {'bijladen': 'Hoeveelheid energie geladen (kWu)'})
-            st.table(bijladen)
-            plot_scatter(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)
+            st.header('Modelresultaten:')
+            show_haalbaarheid(df)
+            show_demand_table(df)            
+            plot_demand(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)
             st.subheader('TEST: eerste 10 regels van de tabel')
             st.dataframe(df.head(15))
             download_excel(df)
