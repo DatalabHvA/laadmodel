@@ -164,20 +164,17 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, nachtl
     df["Einddatum en -tijd"] = pd.to_datetime(df['Einddatum en -tijd'])
     
     # fill gaps in the time series with 'Rusten' activity
-    df['lag'] = df.groupby('Voertuig')['Begindatum en -tijd'].shift(-1)
-    mask = (df['Einddatum en -tijd'] !=  df['lag']) & df['lag'].notna()
-    
-    rows = df.loc[mask].drop(columns=['Begindatum en -tijd'])
-	
-    rows = rows.rename(columns={'Einddatum en -tijd': 'Begindatum en -tijd', 'lag': 'Begindatum en -tijd'})
+    df['lag'] = df.groupby('Voertuig')['Einddatum en -tijd'].shift(1)
+    mask = (df['Begindatum en -tijd'] !=  df['lag']) & df['lag'].notna()
+   
+    rows = df.loc[mask].drop(columns=['Einddatum en -tijd'])
+    rows = rows.rename(columns={'Begindatum en -tijd': 'Einddatum en -tijd', 'lag': 'Begindatum en -tijd'})
     rows['Activiteit'] = 'Rusten'
     rows['Afstand'] = 0
-    
-    #Realign index to ensure the order while sorting in next step
-    rows.index -= 1 
-    
+        
     #append the new rows and sort the index
-    df = pd.concat([df, rows]).sort_index(ignore_index=True).drop(columns='lag')
+    
+    df = pd.concat([df, rows], axis = 0).drop(columns=['lag'])
     
     df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index(drop = True)
     
