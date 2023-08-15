@@ -164,12 +164,12 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, nachtl
     df["Einddatum en -tijd"] = pd.to_datetime(df['Einddatum en -tijd'])
     
     # fill gaps in the time series with 'Rusten' activity
-    df['lag'] = df.groupby('Voertuig')['Einddatum en -tijd'].shift()
-    mask = (df['Begindatum en -tijd'] !=  df['lag']) & df['lag'].notna()
+    df['lag'] = df.groupby('Voertuig')['Begindatum en -tijd'].shift(-1)
+    mask = (df['Einddatum en -tijd'] !=  df['lag']) & df['lag'].notna()
     
-    rows = df.loc[mask].drop(columns=['Einddatum en -tijd'])
+    rows = df.loc[mask].drop(columns=['Begindatum en -tijd'])
 	
-    rows = rows.rename(columns={'Begindatum en -tijd': 'Einddatum en -tijd', 'lag': 'Begindatum en -tijd'})
+    rows = rows.rename(columns={'Einddatum en -tijd': 'Begindatum en -tijd', 'lag': 'Begindatum en -tijd'})
     rows['Activiteit'] = 'Rusten'
     rows['Afstand'] = 0
     
