@@ -162,6 +162,7 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     # Read the Excel file into a DataFrame
     df = pd.read_excel(file, sheet_name = 'ritten')
     df['Positie'] = df['Positie'].fillna('onbekend')
+	df['Afstand'] = df['Afstand'].fillna(0)
 	
     optional_columns = df.columns.difference(['Voertuig','Begindatum en -tijd','Einddatum en -tijd','Positie', 'Afstand', 'Activiteit'])
 	
@@ -234,7 +235,7 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     
     df = df.merge(df_results, on = 'index', how = 'left')
 	
-    df['vertraging'] = 3600*df['bijladen_snel']/laadvermogen_snel
+    df['vertraging'] = np.where(df['bijladen_snel'] > 0, 600 + (3600*df['bijladen_snel']/laadvermogen_snel),0)
 
     return df.drop(['index'], axis = 1)
 
@@ -263,7 +264,8 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
     highest_demand = df.groupby('Positie')['bijladen'].sum().idxmax()
     default_idx = filter_options.index(highest_demand)
     st.subheader('De gemiddelde verdeling van de energievraag over de dag')
-    filter_option = st.selectbox('Selecteer een locatie', df.loc[lambda d: d.bijladen >0].Positie.unique(), index = default_idx)
+    charge_locations = df.loc[lambda d: d.bijladen >0].Positie.unique()
+    filter_option = st.selectbox('Selecteer een locatie', charge_locations, index = default_idx)
 
     df_hour_24h = pd.DataFrame({'hour' : range(1,24)})
 	
@@ -293,16 +295,46 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
 
     # Save the DataFrame to BytesIO as an Excel file
     with pd.ExcelWriter(excel_data, engine='xlsxwriter') as writer:
-        plot_data1.to_excel(writer, index=True, sheet_name='normal charging')
-        plot_data2.to_excel(writer, index=True, sheet_name='smart charging')
+        for location in charge_locations:
+            temp = (charge_hour(df.loc[df.Positie == location], smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days)
+            temp = df_hour_24h.merge(temp, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
+            temp.to_excel(writer, index=True, sheet_name = location)
 
     # Set the BytesIO object's position to the start
     excel_data.seek(0)
 
-    # Offer the file download
-    st.pyplot(fig)
+    # Create a BytesIO object
+    excel_data2 = BytesIO()
+
+    # Save the DataFrame to BytesIO as an Excel file
+    with pd.ExcelWriter(excel_data2, engine='xlsxwriter') as writer:
+        for location in charge_locations:
+            temp = (charge_hour(df.loc[df.Positie == location], smart = 1, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days)
+            temp = df_hour_24h.merge(temp, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
+            temp.to_excel(writer, index=True, sheet_name = location)
+
+    # Set the BytesIO object's position to the start
+    excel_data2.seek(0)
 	
-    st.download_button('Download de data van de plot', excel_data, file_name='data_demand_plot.xlsx')
+    st.pyplot(fig)
+	# Offer the file download
+	
+	# Set up a style to display buttons side by side
+    button_style = """
+        <style>
+            .side-by-side {
+                display: flex;
+                justify-content: space-between;
+            }
+        </style>
+    """
+    st.write(button_style, unsafe_allow_html=True)
+	
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button('Download de data voor regulier laden', excel_data, file_name='data_demand_plot.xlsx')
+    with col2:
+        st.download_button('Download de data voor smart charging', excel_data2, file_name='data_demand_plot.xlsx')
 
 
 def download_excel(df):
