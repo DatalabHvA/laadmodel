@@ -162,7 +162,7 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     # Read the Excel file into a DataFrame
     df = pd.read_excel(file, sheet_name = 'ritten')
     df['Positie'] = df['Positie'].fillna('onbekend')
-	df['Afstand'] = df['Afstand'].fillna(0)
+    df['Afstand'] = df['Afstand'].fillna(0)
 	
     optional_columns = df.columns.difference(['Voertuig','Begindatum en -tijd','Einddatum en -tijd','Positie', 'Afstand', 'Activiteit'])
 	
