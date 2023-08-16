@@ -126,6 +126,7 @@ def charge_hour(df, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 6
     elif smart == 1:
         df_hour['bijladen'] = df_hour.groupby('index').bijladen.transform(lambda row: bijladen_spread_smart(row.max(),laadvermogen,len(row)))
     df_hour['hour'] = df_hour['StartTime'].dt.hour
+	
     return df_hour
 
 def check_file(file):
@@ -152,13 +153,15 @@ def get_params(file):
     battery = df_params.loc['accu'].waarde
     zuinig = df_params.loc['efficiency'].waarde
     aansluittijd = df_params.loc['aansluittijd'].waarde
-    laadvermogen = df_params.loc['laadvermogen'].waarde
+    laadvermogen = df_params.loc['laadvermogen bedrijf'].waarde
+    laadvermogen_snel = df_params.loc['laadvermogen snelweg'].waarde
 	
-    return battery, zuinig, aansluittijd, laadvermogen
+    return battery, zuinig, aansluittijd, laadvermogen, laadvermogen_snel
 
-def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, nachtladen, activiteitenladen, snelwegladen):
+def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_snel, nachtladen, activiteitenladen, snelwegladen):
     # Read the Excel file into a DataFrame
     df = pd.read_excel(file, sheet_name = 'ritten')
+    df['Positie'] = df['Positie'].fillna('onbekend')
     df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index(drop = True)
 
     # data cleaning
@@ -223,17 +226,20 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, nachtl
     			apply(lambda g: simulate2(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen)))
     
     df = df.merge(df_results, on = 'index', how = 'left')
+	
+    df['vertraging'] = 3600*df['bijladen_snel']/laadvermogen_snel
 
     return df.drop(['index'], axis = 1)
 
 def show_haalbaarheid(df):
-    df['Datum'] = df.groupby('RitID')['Begindatum en -tijd'].transform(lambda x: x.min().date())
+    df['Datum'] = df.groupby(['Voertuig','RitID'])['Begindatum en -tijd'].transform(lambda x: x.min().date())
 
     haalbaarheid = df.pivot_table(values = 'energie', index = 'Voertuig', columns = ['Datum'], aggfunc=lambda x: 1 if min(x) >= 0 else 0)
     cmap=LinearSegmentedColormap.from_list('rg',["r","y", "g"], N=256) 
     st.subheader('Haalbaarheid van de planning per dag en voertuig')
     fig1 = plt.figure(figsize=(10, 4))
     sns.heatmap(haalbaarheid, annot=True, cmap = cmap, vmin=0, vmax=1, linewidths=1, linecolor='black')
+	
     st.pyplot(fig1)
  
 def show_demand_table(df):
@@ -241,10 +247,10 @@ def show_demand_table(df):
     bijladen = df.groupby('Positie').bijladen.sum().reset_index()
     bijladen = pd.concat([bijladen,pd.DataFrame({'Positie' : ['snelweg'],
 	    'bijladen' : [df.bijladen_snel.sum()]})]).sort_values(by = 'bijladen', ascending = False).rename(columns = {'bijladen': 'Hoeveelheid energie geladen (kWu)'})
-    st.table(bijladen)
+    st.table(bijladen.reset_index(drop = True))
 
 
-def plot_demand(df, battery = 300, zuinig = 1.25, aansluittijd = 600, laadvermogen = 44):
+def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_snel):
     
     filter_options = list(df.loc[lambda d: d.bijladen >0].Positie.unique())
     highest_demand = df.groupby('Positie')['bijladen'].sum().idxmax()
@@ -252,6 +258,8 @@ def plot_demand(df, battery = 300, zuinig = 1.25, aansluittijd = 600, laadvermog
     st.subheader('De gemiddelde verdeling van de energievraag over de dag')
     filter_option = st.selectbox('Selecteer een locatie', df.loc[lambda d: d.bijladen >0].Positie.unique(), index = default_idx)
 
+    df_hour_24h = pd.DataFrame({'hour' : range(1,24)})
+	
     df_plot = df.loc[df.Positie == filter_option]
 	
 	# Create a demand plot
@@ -259,20 +267,43 @@ def plot_demand(df, battery = 300, zuinig = 1.25, aansluittijd = 600, laadvermog
 
     n_days = max(1,(df['Begindatum en -tijd'].max()-df['Begindatum en -tijd'].min()).days)
 
-    (charge_hour(df_plot, smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days).plot(ax = ax1)
-    ax1.set_ylabel('Energievraag zonder smart charging (kW)')
+    plot_data1 = (charge_hour(df_plot, smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days)
+    plot_data1 = df_hour_24h.merge(plot_data1, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
+    plot_data1.plot(ax = ax1)
+    ax1.set_ylabel('Gemiddelde energievraag zonder smart charging (kW)')
     ax1.set_ylim(bottom=-0.5)
 
-    (charge_hour(df_plot, smart = 1, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days).plot(ax = ax2)
-    ax2.set_ylabel('Energievraag met smart charging (kW)')
+    plot_data2 = (charge_hour(df_plot, smart = 1, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days)
+    plot_data2 = df_hour_24h.merge(plot_data2, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
+    plot_data2.plot(ax = ax2)
+    ax2.set_ylabel('Gemiddelde energievraag met smart charging (kW)')
     ax2.set_ylim(bottom=-0.5)
 	
     plt.tight_layout()
 
+    # Create a BytesIO object
+    excel_data = BytesIO()
+
+    # Save the DataFrame to BytesIO as an Excel file
+    with pd.ExcelWriter(excel_data, engine='xlsxwriter') as writer:
+        plot_data1.to_excel(writer, index=True, sheet_name='normal charging')
+        plot_data2.to_excel(writer, index=True, sheet_name='smart charging')
+
+    # Set the BytesIO object's position to the start
+    excel_data.seek(0)
+
+    # Offer the file download
     st.pyplot(fig)
+	
+    st.download_button('Download de data van de plot', excel_data, file_name='data_demand_plot.xlsx')
 
 
 def download_excel(df):
+
+    st.subheader('Definitieve dataset')
+	
+    df = df.drop(['Datum'], axis = 1)
+	
     # Create a BytesIO object
     excel_data = BytesIO()
 
@@ -282,7 +313,7 @@ def download_excel(df):
 
     # Set the BytesIO object's position to the start
     excel_data.seek(0)
-
+	
     # Offer the file download
     st.download_button('Download Excelbestand met modeluitkomsten', excel_data, file_name='laadmodel_resultaten.xlsx')
 
@@ -318,12 +349,12 @@ def main():
     if uploaded_file is not None:
         try:
             check_file(uploaded_file)
-            battery, zuinig, aansluittijd, laadvermogen = get_params(uploaded_file)
-            df = process_excel_file(uploaded_file, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen, snelwegladen = snelwegladen)
+            battery, zuinig, aansluittijd, laadvermogen, laadvermogen_snel = get_params(uploaded_file)
+            df = process_excel_file(uploaded_file, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, laadvermogen_snel = laadvermogen_snel, nachtladen = nachtladen, activiteitenladen = activiteitenladen, snelwegladen = snelwegladen)
             st.header('Modelresultaten:')
             show_haalbaarheid(df)
             show_demand_table(df)            
-            plot_demand(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen)
+            plot_demand(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, laadvermogen_snel = laadvermogen_snel)
             st.subheader('TEST: eerste 10 regels van de tabel')
             st.dataframe(df.head(15))
             download_excel(df)
