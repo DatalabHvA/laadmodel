@@ -162,6 +162,9 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     # Read the Excel file into a DataFrame
     df = pd.read_excel(file, sheet_name = 'ritten')
     df['Positie'] = df['Positie'].fillna('onbekend')
+	
+    optional_columns = df.columns.difference(['Voertuig','Begindatum en -tijd','Einddatum en -tijd','Positie', 'Afstand', 'Activiteit'])
+	
     df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index(drop = True)
 
     # data cleaning
@@ -193,13 +196,17 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     else: 
         df['activiteit_g'] = (df.groupby('Voertuig',group_keys=False).
                       apply(lambda g: (g['Activiteit'] != g.shift().fillna(method='bfill')['Activiteit']).cumsum()))
-
-    df = df.groupby(['Voertuig','activiteit_g']).agg({'Activiteit' : 'first',
-                               'Positie' : 'first',
-                               'Afstand' : 'sum',
-                               'Begindatum en -tijd' : 'min',
-                               'Einddatum en -tijd' : 'max',
-                               'Laden' : 'first'}).reset_index(drop = False).drop('activiteit_g', axis = 1)
+    agg_dict = {'Activiteit' : 'first',
+                'Positie' : 'first',
+                'Afstand' : 'sum',
+                'Begindatum en -tijd' : 'min',
+                'Einddatum en -tijd' : 'max',
+                'Laden' : 'first'}
+    
+    optional_dict = {key : 'first' for key in optional_columns}
+    agg_dict = {**agg_dict, **optional_dict}
+	
+    df = df.groupby(['Voertuig','activiteit_g']).agg(agg_dict).reset_index(drop = False).drop('activiteit_g', axis = 1)
 
     df['Duur'] = (df['Einddatum en -tijd'] - df['Begindatum en -tijd']).apply(lambda x: x.total_seconds())
     df['nacht'] = np.where(((df.Activiteit == 'Rusten') & (df.Duur > 6*3600)),1,0)
@@ -355,7 +362,7 @@ def main():
             show_haalbaarheid(df)
             show_demand_table(df)            
             plot_demand(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, laadvermogen_snel = laadvermogen_snel)
-            st.subheader('TEST: eerste 10 regels van de tabel')
+            st.subheader('TEST: eerste 15 regels van de tabel')
             st.dataframe(df.head(15))
             download_excel(df)
         except Exception as e:
