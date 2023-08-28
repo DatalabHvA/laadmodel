@@ -255,12 +255,12 @@ def show_demand_table(df):
     bijladen = df.groupby('Positie').bijladen.sum().reset_index()
     bijladen = pd.concat([bijladen,pd.DataFrame({'Positie' : ['snelweg'],
 	    'bijladen' : [df.bijladen_snel.sum()]})]).sort_values(by = 'bijladen', ascending = False).rename(columns = {'bijladen': 'Hoeveelheid energie geladen (kWu)'})
-    st.table(bijladen.reset_index(drop = True))
+    st.table(bijladen.reset_index(drop = True).loc[lambda d: d['Hoeveelheid energie geladen (kWu)'] >0])
 
 
 def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_snel):
     
-    filter_options = list(df.loc[lambda d: d.bijladen >0].Positie.unique())
+    filter_options = list(df.loc[lambda d: d.bijladen > 0].Positie.unique())
     highest_demand = df.groupby('Positie')['bijladen'].sum().idxmax()
     default_idx = filter_options.index(highest_demand)
     st.subheader('De gemiddelde verdeling van de energievraag over de dag')
@@ -272,21 +272,20 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
     df_plot = df.loc[df.Positie == filter_option]
 	
 	# Create a demand plot
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 12))
+    fig, (ax1) = plt.subplots(1, 1, figsize=(12, 6))
 
     n_days = max(1,(df['Begindatum en -tijd'].max()-df['Begindatum en -tijd'].min()).days)
 
     plot_data1 = (charge_hour(df_plot, smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days)
     plot_data1 = df_hour_24h.merge(plot_data1, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
-    plot_data1.plot(ax = ax1)
-    ax1.set_ylabel('Gemiddelde energievraag zonder smart charging (kW)')
-    ax1.set_ylim(bottom=-0.5)
+    plot_data1.rename(columns = {'bijladen' : 'zonder smart charging'}).plot(ax = ax1)
 
     plot_data2 = (charge_hour(df_plot, smart = 1, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days)
     plot_data2 = df_hour_24h.merge(plot_data2, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
-    plot_data2.plot(ax = ax2)
-    ax2.set_ylabel('Gemiddelde energievraag met smart charging (kW)')
-    ax2.set_ylim(bottom=-0.5)
+    plot_data2.rename(columns = {'bijladen' : 'met smart charging'}).plot(ax = ax1, color = 'red')
+    ax1.set_ylabel('Gemiddelde energievraag (kW)')
+    ax1.set_xlabel('Uur van de dag')
+    ax1.set_ylim(bottom=-0.5)
 	
     plt.tight_layout()
 
