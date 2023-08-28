@@ -274,7 +274,7 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
 	# Create a demand plot
     fig, (ax1) = plt.subplots(1, 1, figsize=(12, 6))
 
-    n_days = max(1,(df['Begindatum en -tijd'].max()-df['Begindatum en -tijd'].min()).days)
+    n_days = max(1,(df['Begindatum en -tijd'].max()-df['Begindatum en -tijd'].min()).days+1)
 
     plot_data1 = (charge_hour(df_plot, smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days)
     plot_data1 = df_hour_24h.merge(plot_data1, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
