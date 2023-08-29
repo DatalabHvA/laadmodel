@@ -260,12 +260,9 @@ def show_demand_table(df):
 
 def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_snel):
     
-    filter_options = list(df.loc[lambda d: d.bijladen > 0].Positie.unique())
-    highest_demand = df.groupby('Positie')['bijladen'].sum().idxmax()
-    default_idx = filter_options.index(highest_demand)
     st.subheader('De gemiddelde verdeling van de energievraag over de dag')
-    charge_locations = df.loc[lambda d: d.bijladen >0].Positie.unique()
-    filter_option = st.selectbox('Selecteer een locatie', charge_locations, index = default_idx)
+    charge_locations = df.loc[lambda d: d.bijladen >0].groupby('Positie').bijladen.sum().sort_values(ascending = False).index
+    filter_option = st.selectbox('Selecteer een locatie', charge_locations, index = 0)
 
     df_hour_24h = pd.DataFrame({'hour' : range(1,24)})
 	
