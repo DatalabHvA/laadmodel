@@ -221,7 +221,6 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     df_locatie = pd.read_excel(file, sheet_name = 'laadlocaties').assign(thuis = 1)
     df = df.merge(df_locatie, how = 'left', on = 'Positie')
     df['thuis'] = df.thuis.fillna(0)
-	
     df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index()
 	
     if snelwegladen == 0: 
@@ -392,7 +391,7 @@ def main():
             show_haalbaarheid(df)
             show_demand_table(df)            
             plot_demand(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, laadvermogen_snel = laadvermogen_snel)
-            st.subheader('TEST: eerste 15 regels van de tabel')
+            st.subheader('De eerste 15 regels van de het outputbestand')
             st.dataframe(df.head(15))
             download_excel(df)
         except Exception as e:
