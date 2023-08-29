@@ -210,7 +210,7 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     df = df.groupby(['Voertuig','activiteit_g']).agg(agg_dict).reset_index(drop = False).drop('activiteit_g', axis = 1)
 
     df['Duur'] = (df['Einddatum en -tijd'] - df['Begindatum en -tijd']).apply(lambda x: x.total_seconds())
-    df['nacht'] = np.where(((df.Activiteit == 'Rusten') & (df.Duur > 6*3600)),1,0)
+    df['nacht'] = np.where(((df.Afstand < 3) & (df.Duur > 6*3600)),1,0)
 
     if df.Voertuig.nunique() == 1: 
         df['RitID'] = (df['nacht'] < df.shift().fillna(method='bfill')['nacht']).cumsum()
@@ -251,7 +251,7 @@ def show_haalbaarheid(df):
     st.pyplot(fig1)
  
 def show_demand_table(df):
-    st.subheader('Tabel met hoeveelheid geladen energie per locatie')
+    st.subheader('Tabel met hoeveelheid geladen energie per locatie (top 10)')
     bijladen = df.groupby('Positie').bijladen.sum().reset_index()
     bijladen = pd.concat([bijladen,pd.DataFrame({'Positie' : ['snelweg'],
 	    'bijladen' : [df.bijladen_snel.sum()]})]).sort_values(by = 'bijladen', ascending = False).rename(columns = {'bijladen': 'Hoeveelheid energie geladen (kWu)'})
