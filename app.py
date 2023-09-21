@@ -6,6 +6,7 @@ import seaborn as sns
 import requests
 from io import BytesIO
 import numpy as np
+from itertools import product
 
 @st.cache_data
 def tekort_snel(df2, battery = 300, zuinig = 1.25):
@@ -269,13 +270,18 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
     charge_locations = df.loc[lambda d: d.bijladen >0].groupby('Positie').bijladen.sum().sort_values(ascending = False).index
     filter_option = st.selectbox('Selecteer een locatie', charge_locations, index = 0)
     	
-    df_hour_24h = pd.DataFrame({'hour' : range(1,24)})
-	
     @st.cache_data
-    def filter_data(selected_option, smart = 0):
+    def filter_data(df, selected_option, smart = 0):
+
         df_plot = df.loc[df.Positie == selected_option]
         plot_data1 = (charge_hour(df_plot, smart = smart, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby(['hour','Date']).bijladen.sum()).reset_index()
-        plot_data1 = df_hour_24h.merge(plot_data1, how = 'left', on = 'hour').fillna(0)
+        
+        uniques = [range(1,24), pd.date_range(plot_data1.Date.min(),plot_data1.Date.max(), freq = '1d')]
+        df_hour_date = pd.DataFrame(product(*uniques), columns = ['hour','Date'])
+        df_hour_date['Date'] = df_hour_date['Date'].dt.date
+		
+        plot_data1 = df_hour_date.merge(plot_data1, how = 'left', on = ['hour','Date']).fillna(0)
+		
         return plot_data1
 		
     percentile_choice = st.radio('Percentiel waarde voor error bar',[75,85,95])
@@ -283,10 +289,10 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
 	# Create a demand plot
     fig, (ax1) = plt.subplots(1, 1, figsize=(12, 6))
 
-    sns.lineplot(data = filter_data(filter_option,0), x = 'hour',y = 'bijladen', errorbar=('pi',percentile_choice), ax = ax1, label = 'regulier laden')
+    sns.lineplot(data = filter_data(df, filter_option,0), x = 'hour',y = 'bijladen', errorbar=('pi',percentile_choice), ax = ax1, label = 'regulier laden')
     #plot_data1.rename(columns = {'bijladen' : 'zonder smart charging'}).plot(ax = ax1)
 
-    sns.lineplot(data = filter_data(filter_option,1), x = 'hour',y = 'bijladen', errorbar=('pi',percentile_choice), ax = ax1, color = 'red', label = 'smart charging')
+    sns.lineplot(data = filter_data(df, filter_option,1), x = 'hour',y = 'bijladen', errorbar=('pi',percentile_choice), ax = ax1, color = 'red', label = 'smart charging')
     ax1.set_ylabel('Totale energievraag transport (kW)')
     ax1.set_xlabel('Uur van de dag')
     ax1.set_ylim(bottom=-0.5)
