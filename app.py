@@ -126,6 +126,7 @@ def charge_hour(df, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 6
     elif smart == 1:
         df_hour['bijladen'] = df_hour.groupby('index').bijladen.transform(lambda row: bijladen_spread_smart(row.max(),laadvermogen,len(row)))
     df_hour['hour'] = df_hour['StartTime'].dt.hour
+    df_hour['Date'] = df_hour['StartTime'].dt.date
 	
     return df_hour
 
@@ -270,19 +271,18 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
 	# Create a demand plot
     fig, (ax1) = plt.subplots(1, 1, figsize=(12, 6))
 
-    n_days = max(1,(df['Begindatum en -tijd'].max()-df['Begindatum en -tijd'].min()).days+1)
+    plot_data1 = (charge_hour(df_plot, smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby(['hour','Date']).bijladen.sum()).reset_index()
+    plot_data1 = df_hour_24h.merge(plot_data1, how = 'left', on = 'hour').fillna(0)
+    sns.lineplot(data = plot_data1, x = 'hour',y = 'bijladen', ci='sd', ax = ax1, label = 'regulier laden')
+    #plot_data1.rename(columns = {'bijladen' : 'zonder smart charging'}).plot(ax = ax1)
 
-    plot_data1 = (charge_hour(df_plot, smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days)
-    plot_data1 = df_hour_24h.merge(plot_data1, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
-    plot_data1.rename(columns = {'bijladen' : 'zonder smart charging'}).plot(ax = ax1)
-
-    plot_data2 = (charge_hour(df_plot, smart = 1, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days)
-    plot_data2 = df_hour_24h.merge(plot_data2, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
-    plot_data2.rename(columns = {'bijladen' : 'met smart charging'}).plot(ax = ax1, color = 'red')
-    ax1.set_ylabel('Gemiddelde energievraag (kW)')
+    plot_data2 = (charge_hour(df_plot, smart = 1, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby(['hour','Date']).bijladen.sum()).reset_index()
+    plot_data2 = df_hour_24h.merge(plot_data2, how = 'left', on = 'hour').fillna(0)
+    sns.lineplot(data = plot_data2, x = 'hour',y = 'bijladen', ci='sd', ax = ax1, color = 'red', label = 'smart charging')
+    ax1.set_ylabel('Totale energievraag transport (kW)')
     ax1.set_xlabel('Uur van de dag')
     ax1.set_ylim(bottom=-0.5)
-	
+    plt.legend()
     plt.tight_layout()
 	
     st.pyplot(fig)
