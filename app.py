@@ -381,7 +381,9 @@ def download_template():
 
 def main():
     st.title('Laadmodel ZEC')
-	
+	st.write("De resultaten van deze tool zijn informatief.\n
+	De verstrekte informatie kan onvolledig of niet geheel juist zijn.\n
+	Aan de resultaten van deze tool kunnen geen rechten worden ontleend.")
 
     # Download template button
     download_template()
