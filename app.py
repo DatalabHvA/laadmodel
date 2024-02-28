@@ -246,7 +246,8 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     return df.drop(['index'], axis = 1)
 
 def show_haalbaarheid(df):
-    df['Datum'] = df.groupby(['Voertuig','RitID'])['Begindatum en -tijd'].transform(lambda x: x.min().date())
+    #df['Datum'] = df.groupby(['Voertuig','RitID'])['Begindatum en -tijd'].transform(lambda x: x.min().date())
+    df['Datum'] = df['Begindatum en -tijd'].dt.date
 
     haalbaarheid = df.pivot_table(values = 'energie', index = 'Voertuig', columns = ['Datum'], aggfunc=lambda x: 1 if min(x) >= -0.01 else 0)
     cmap=LinearSegmentedColormap.from_list('rg',["r","y", "g"], N=256) 
