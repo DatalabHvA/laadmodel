@@ -173,12 +173,12 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
 	
     optional_columns = df.columns.difference(['Voertuig','Begindatum en -tijd','Einddatum en -tijd','Positie', 'Afstand', 'Activiteit'])
 	
-    df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index(drop = True)
-
     # data cleaning
     df["Begindatum en -tijd"] = pd.to_datetime(df['Begindatum en -tijd'])
     df["Einddatum en -tijd"] = pd.to_datetime(df['Einddatum en -tijd'])
-    
+
+    df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index(drop = True)
+
     # fill gaps in the time series with 'Rusten' activity
     df['lag'] = df.groupby('Voertuig')['Einddatum en -tijd'].shift(1)
     mask = (df['Begindatum en -tijd'] !=  df['lag']) & df['lag'].notna()
