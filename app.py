@@ -109,6 +109,7 @@ def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aan
     return return_df
 
 def bijladen_spread(bijladen, laadvermogen, n_hours): 
+    laadvermogen = max(laadvermogen, np.ceil(bijladen/n_hours)+1)
     a = ([laadvermogen]*int(bijladen/laadvermogen)) + [bijladen % laadvermogen]
     a += [0] * (n_hours - len(a))
     return a
