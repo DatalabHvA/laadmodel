@@ -28,6 +28,7 @@ def tekort_snel(df2, battery = 300, zuinig = 1.25):
     return return_df   
 
 @st.cache_data
+# Simulatie voor het laadmodel MET de optie voor bijladen langs de snelweg
 def simulate2(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 600, battery = 300, nachtladen = 0, activiteitenladen = 0):
 
     if (nachtladen == 0) & (activiteitenladen == 0):
@@ -47,12 +48,13 @@ def simulate2(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aa
     df2['bijladen'] = df2['bijladen'].fillna(0)
    
     energy = [battery]
+    verbruik = []
     bijladen = []
     bijladen_snel = []
 
     for i in range(df2.shape[0]):
-        verbruik = df2.iloc[i]['Afstand']
-        energie_update = energy[i] - (zuinig*verbruik)
+        verbruik_update = -df2.iloc[i]['Afstand']*zuinig
+        energie_update = energy[i] + verbruik_update
         
         bijladen_snel_update = df2.iloc[i]['bijladen_snel']
         energie_update = energie_update + bijladen_snel_update
@@ -62,15 +64,18 @@ def simulate2(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aa
         energie_update = energie_update + bijladen_update
         bijladen.append(bijladen_update)
         
+        verbruik.append(verbruik_update)
         energy.append(energie_update)
     
     return_df = pd.DataFrame({'energie' : energy[:-1],
+                              'verbruik': verbruik,
                              'bijladen' : bijladen,
                              'bijladen_snel' : bijladen_snel,
     						 'index' : df2['index']}, index = df2.index)
     return return_df
 
 @st.cache_data
+# Simulatie voor het laadmodel ZONDER de optie voor bijladen langs de snelweg
 def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 600, battery = 300, nachtladen = 0, activiteitenladen = 0):
 
     if (nachtladen == 0) & (activiteitenladen == 0):
@@ -85,13 +90,14 @@ def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aan
     df2['Laadtijd'] = np.where((df2['Activiteit'] == 'Rijden') | (df2['Afstand'] >= 3), 0, df2['Laadtijd']) # niet AC-laden tijdens rijden  		
 
     energy = [battery]
+    verbruik = []
     bijladen = []
     bijladen_snel = []
     
     for i in range(df2.shape[0]):
     
-        afstand = df2.iloc[i]['Afstand']
-        energie_update = energy[i] - (zuinig*afstand)
+        verbruik_update = -df2.iloc[i]['Afstand']*zuinig
+        energie_update = energy[i] + verbruik_update
         
         bijladen_snel_update = 0
         energie_update = energie_update + bijladen_snel_update
@@ -100,8 +106,10 @@ def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aan
         bijladen_update = min(laadvermogen*(max(0, df2.iloc[i]['Laadtijd']-aansluittijd)/3600), battery - energie_update)
         energie_update = energie_update + bijladen_update
         bijladen.append(bijladen_update)
+        verbruik.append(verbruik_update)
         energy.append(energie_update)
     return_df = pd.DataFrame({'energie' : energy[:-1],
+                              'verbruik': verbruik,
                              'bijladen' : bijladen,
                              'bijladen_snel' : bijladen_snel,
 							 'index' : df2['index']}, index = df2.index)
@@ -233,7 +241,7 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
 	
     if snelwegladen == 0: 
     	df_results = (df.
-    			groupby(['Voertuig', 'RitID']).
+    			groupby(['Voertuig']).
     			apply(lambda g: simulate(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen)))
     elif snelwegladen == 1:
     	df_results = (df.
