@@ -5,6 +5,7 @@ from  matplotlib.colors import LinearSegmentedColormap
 import seaborn as sns
 import requests
 from io import BytesIO
+from datetime import timedelta
 import numpy as np
 from itertools import product
 
@@ -25,7 +26,31 @@ def tekort_snel(df2, battery = 300, zuinig = 1.25):
         tekort_snel = max(0,df2.iloc[0:i+1].Afstand.sum()*zuinig - sum(tekort1) - sum(tekort2))
         tekort2.append(tekort_snel)
     return_df = pd.DataFrame({'bijladen_snel' : tekort2, 'bijladen' : tekort1}, index = df2.index)
-    return return_df   
+    return return_df
+
+def bijladen_einde_rit(df, laadvermogen = 44, battery = 300, aansluittijd = 600):
+    df_result = df.copy()
+    
+    lastrow = df.iloc[-1].copy()
+    eindstand = lastrow['energie'] + lastrow['verbruik'] + lastrow['bijladen'] + lastrow['bijladen_snel']
+
+    if eindstand < battery:
+        # Modify fields in the duplicated row as needed:
+        lastrow['Begindatum en -tijd'] = lastrow['Einddatum en -tijd']
+        lastrow['Afstand'] = 0
+        lastrow['Positie'] = '-'
+        lastrow['Activiteit'] = 'Opladen einde rit'
+        lastrow['Datum'] = lastrow['Begindatum en -tijd'].date()
+        lastrow['energie'] = eindstand
+        lastrow['Laden'] = 1
+        lastrow['bijladen'] = (battery - eindstand)
+        lastrow['Duur'] = aansluittijd + lastrow['bijladen']/laadvermogen*3600
+        lastrow['Einddatum en -tijd'] = lastrow['Begindatum en -tijd'] + timedelta(seconds = lastrow['Duur'])
+        
+        # Append the modified row
+        df_result = pd.concat([df_result, pd.DataFrame([lastrow])], ignore_index=True)
+    
+    return df_result
 
 @st.cache_data
 # Simulatie voor het laadmodel MET de optie voor bijladen langs de snelweg
@@ -251,8 +276,13 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     df = df.merge(df_results, on = 'index', how = 'left')
 	
     df['vertraging'] = np.where(df['bijladen_snel'] > 0, 600 + (3600*df['bijladen_snel']/laadvermogen_snel),0)
-
-    return df.drop(['index'], axis = 1)
+    
+    # Voeg een extra regel toe voor ieder voertuig wanneer extra bijladen nodig is
+    df = df.groupby('Voertuig').apply(lambda g: bijladen_einde_rit(g, laadvermogen = laadvermogen, battery = battery, aansluittijd = aansluittijd), include_groups = False)
+    df = df.reset_index(level=1, drop=True).reset_index()
+    df = df.drop('index', axis = 1)
+    
+    return df
 
 def show_haalbaarheid(df):
     #df['Datum'] = df.groupby(['Voertuig','RitID'])['Begindatum en -tijd'].transform(lambda x: x.min().date())
@@ -412,7 +442,7 @@ def main():
             show_haalbaarheid(df)
             show_demand_table(df)            
             plot_demand(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, laadvermogen_snel = laadvermogen_snel)
-            st.subheader('De eerste 15 regels van de het outputbestand')
+            st.subheader('De eerste 15 regels van het outputbestand')
             st.dataframe(df.head(15))
             download_excel(df)
         except Exception as e:
