@@ -5,6 +5,7 @@ from  matplotlib.colors import LinearSegmentedColormap
 import seaborn as sns
 import requests
 from io import BytesIO
+from datetime import timedelta
 import numpy as np
 from itertools import product
 
@@ -25,9 +26,34 @@ def tekort_snel(df2, battery = 300, zuinig = 1.25):
         tekort_snel = max(0,df2.iloc[0:i+1].Afstand.sum()*zuinig - sum(tekort1) - sum(tekort2))
         tekort2.append(tekort_snel)
     return_df = pd.DataFrame({'bijladen_snel' : tekort2, 'bijladen' : tekort1}, index = df2.index)
-    return return_df   
+    return return_df
+
+def bijladen_einde_rit(df, laadvermogen = 44, battery = 300, aansluittijd = 600):
+    df_result = df.copy()
+    
+    lastrow = df.iloc[-1].copy()
+    eindstand = lastrow['energie'] + lastrow['verbruik'] + lastrow['bijladen'] + lastrow['bijladen_snel']
+
+    if eindstand < battery:
+        # Modify fields in the duplicated row as needed:
+        lastrow['Begindatum en -tijd'] = lastrow['Einddatum en -tijd']
+        lastrow['Afstand'] = 0
+        lastrow['Positie'] = '-'
+        lastrow['Activiteit'] = 'Opladen einde rit'
+        lastrow['Datum'] = lastrow['Begindatum en -tijd'].date()
+        lastrow['energie'] = eindstand
+        lastrow['Laden'] = 1
+        lastrow['bijladen'] = (battery - eindstand)
+        lastrow['Duur'] = aansluittijd + lastrow['bijladen']/laadvermogen*3600
+        lastrow['Einddatum en -tijd'] = lastrow['Begindatum en -tijd'] + timedelta(seconds = lastrow['Duur'])
+        
+        # Append the modified row
+        df_result = pd.concat([df_result, pd.DataFrame([lastrow])], ignore_index=True)
+    
+    return df_result
 
 @st.cache_data
+# Simulatie voor het laadmodel MET de optie voor bijladen langs de snelweg
 def simulate2(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 600, battery = 300, nachtladen = 0, activiteitenladen = 0):
 
     if (nachtladen == 0) & (activiteitenladen == 0):
@@ -47,12 +73,13 @@ def simulate2(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aa
     df2['bijladen'] = df2['bijladen'].fillna(0)
    
     energy = [battery]
+    verbruik = []
     bijladen = []
     bijladen_snel = []
 
     for i in range(df2.shape[0]):
-        verbruik = df2.iloc[i]['Afstand']
-        energie_update = energy[i] - (zuinig*verbruik)
+        verbruik_update = -df2.iloc[i]['Afstand']*zuinig
+        energie_update = energy[i] + verbruik_update
         
         bijladen_snel_update = df2.iloc[i]['bijladen_snel']
         energie_update = energie_update + bijladen_snel_update
@@ -62,15 +89,18 @@ def simulate2(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aa
         energie_update = energie_update + bijladen_update
         bijladen.append(bijladen_update)
         
+        verbruik.append(verbruik_update)
         energy.append(energie_update)
     
     return_df = pd.DataFrame({'energie' : energy[:-1],
+                              'verbruik': verbruik,
                              'bijladen' : bijladen,
                              'bijladen_snel' : bijladen_snel,
     						 'index' : df2['index']}, index = df2.index)
     return return_df
 
 @st.cache_data
+# Simulatie voor het laadmodel ZONDER de optie voor bijladen langs de snelweg
 def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 600, battery = 300, nachtladen = 0, activiteitenladen = 0):
 
     if (nachtladen == 0) & (activiteitenladen == 0):
@@ -85,13 +115,14 @@ def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aan
     df2['Laadtijd'] = np.where((df2['Activiteit'] == 'Rijden') | (df2['Afstand'] >= 3), 0, df2['Laadtijd']) # niet AC-laden tijdens rijden  		
 
     energy = [battery]
+    verbruik = []
     bijladen = []
     bijladen_snel = []
     
     for i in range(df2.shape[0]):
     
-        afstand = df2.iloc[i]['Afstand']
-        energie_update = energy[i] - (zuinig*afstand)
+        verbruik_update = -df2.iloc[i]['Afstand']*zuinig
+        energie_update = energy[i] + verbruik_update
         
         bijladen_snel_update = 0
         energie_update = energie_update + bijladen_snel_update
@@ -100,8 +131,10 @@ def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aan
         bijladen_update = min(laadvermogen*(max(0, df2.iloc[i]['Laadtijd']-aansluittijd)/3600), battery - energie_update)
         energie_update = energie_update + bijladen_update
         bijladen.append(bijladen_update)
+        verbruik.append(verbruik_update)
         energy.append(energie_update)
     return_df = pd.DataFrame({'energie' : energy[:-1],
+                              'verbruik': verbruik,
                              'bijladen' : bijladen,
                              'bijladen_snel' : bijladen_snel,
 							 'index' : df2['index']}, index = df2.index)
@@ -233,7 +266,7 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
 	
     if snelwegladen == 0: 
     	df_results = (df.
-    			groupby(['Voertuig', 'RitID']).
+    			groupby(['Voertuig']).
     			apply(lambda g: simulate(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen)))
     elif snelwegladen == 1:
     	df_results = (df.
@@ -243,8 +276,13 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     df = df.merge(df_results, on = 'index', how = 'left')
 	
     df['vertraging'] = np.where(df['bijladen_snel'] > 0, 600 + (3600*df['bijladen_snel']/laadvermogen_snel),0)
-
-    return df.drop(['index'], axis = 1)
+    
+    # Voeg een extra regel toe voor ieder voertuig wanneer extra bijladen nodig is
+    df = df.groupby('Voertuig').apply(lambda g: bijladen_einde_rit(g, laadvermogen = laadvermogen, battery = battery, aansluittijd = aansluittijd), include_groups = False)
+    df = df.reset_index(level=1, drop=True).reset_index()
+    df = df.drop('index', axis = 1)
+    
+    return df
 
 def show_haalbaarheid(df):
     #df['Datum'] = df.groupby(['Voertuig','RitID'])['Begindatum en -tijd'].transform(lambda x: x.min().date())
@@ -404,7 +442,7 @@ def main():
             show_haalbaarheid(df)
             show_demand_table(df)            
             plot_demand(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, laadvermogen_snel = laadvermogen_snel)
-            st.subheader('De eerste 15 regels van de het outputbestand')
+            st.subheader('De eerste 15 regels van het outputbestand')
             st.dataframe(df.head(15))
             download_excel(df)
         except Exception as e:
