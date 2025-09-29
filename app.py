@@ -41,6 +41,7 @@ def bijladen_einde_rit(df, laadvermogen = 44, battery = 300, aansluittijd = 600)
         lastrow['Positie'] = '-'
         lastrow['Activiteit'] = 'Opladen einde rit'
         lastrow['Datum'] = lastrow['Begindatum en -tijd'].date()
+        lastrow['verbruik'] = 0
         lastrow['energie'] = eindstand
         lastrow['Laden'] = 1
         lastrow['bijladen'] = (battery - eindstand)
