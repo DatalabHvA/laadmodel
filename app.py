@@ -28,6 +28,8 @@ def tekort_snel(df2, battery = 300, zuinig = 1.25):
     return_df = pd.DataFrame({'bijladen_snel' : tekort2, 'bijladen' : tekort1}, index = df2.index)
     return return_df
 
+@st.cache_data
+# Functie voor het toevoegen van een extra regel als aan het einde van de rit de accu nog niet terug is volgeladen
 def bijladen_einde_rit(df, laadvermogen = 44, battery = 300, aansluittijd = 600):
     df_result = df.copy()
     
@@ -52,6 +54,125 @@ def bijladen_einde_rit(df, laadvermogen = 44, battery = 300, aansluittijd = 600)
         df_result = pd.concat([df_result, pd.DataFrame([lastrow])], ignore_index=True)
     
     return df_result
+
+@st.cache_data
+# Match prijzen met de juiste rijen in de data
+def match_prices(row, prices):
+    prices = prices[['datetime_CET', 'price_eur_mwh']].sort_values(by = 'datetime_CET')
+    prices['datetime_CET_end'] = prices['datetime_CET'].shift(-1)
+    prices['Datum'] = prices['datetime_CET'].dt.date 
+    prices_filter = prices.loc[prices['datetime_CET_end'] > row['Begindatum en -tijd']]
+    prices_filter = prices_filter.loc[prices_filter['datetime_CET'] < row['Einddatum en -tijd']]
+
+    result = prices_filter.assign(**row.to_dict())
+    return result
+
+@st.cache_data
+# Functie voor het toevoegen van een extra regel als aan het einde van de rit de accu nog niet terug is volgeladen
+def add_day_ahead_prices(df):
+    
+    # Laad prijzen in vanuit Excelbestand in repository
+    prices_path = 'day_ahead_prices.xlsx'
+    prices = pd.read_excel(prices_path, engine='openpyxl')
+    
+    df_laden = df[df['Laden']==1]
+    df_laden = pd.concat((match_prices(row, prices) for _, row in df_laden.iterrows()), ignore_index=True)
+    df_laden['Begindatum en -tijd'] = df_laden[['Begindatum en -tijd', 'datetime_CET']].max(axis = 1)
+    df_laden['Einddatum en -tijd'] = df_laden[['Einddatum en -tijd', 'datetime_CET_end']].min(axis = 1)
+    df_laden = df_laden[['Voertuig', 'Begindatum en -tijd', 'Einddatum en -tijd', 'Positie', 'Afstand', 'Activiteit', 'Datum', 'Laden', 'price_eur_mwh']]
+        
+    df_niet_laden = df[df['Laden']!=1]
+    result =  pd.concat([df_niet_laden, df_laden])
+    
+    return result
+        
+@st.cache_data
+# Functie voor het ophalen van extra data van de ENTSO-E API. Vraag hiervoor een API-token op   
+def get_day_ahead_prices(token, date_start, date_end = ''):
+    
+    import requests
+    import pandas as pd
+    from datetime import datetime, timedelta
+    import xmltodict
+    import json
+    from zoneinfo import ZoneInfo
+
+    # Set end date to start date if request is for one day only
+    if date_end == '':
+        date_end = date_start
+
+    date_range = pd.date_range(
+        start=pd.to_datetime(date_start).date(),
+        end=pd.to_datetime(date_end).date(),
+    )
+
+    df = pd.DataFrame()
+
+    # Iterate over dates
+    for i in date_range:
+        start = i.strftime('%Y%m%d0000')
+        end = i.strftime('%Y%m%d2359')
+    
+        # ENTSO-E parameters
+        params = {
+            'securityToken': token,
+            'documentType': 'A44',  # Day-ahead prices
+            'in_Domain': '10YNL----------L', # Bidding zone NL
+            'out_Domain': '10YNL----------L',
+            'periodStart': start,
+            'periodEnd': end,
+        }
+        
+        # API request
+        url = 'https://web-api.tp.entsoe.eu/api'
+        response = requests.get(url, params=params)
+        
+        if response.status_code != 200:
+            raise Exception(f"Fout bij API-aanroep: {response.status_code} - {response.text}")
+    
+        # Unpack dictionary of response
+        o = xmltodict.parse(response.text)
+        list_resp = o['Publication_MarketDocument']['TimeSeries'][0]
+        
+        dict_values = list_resp['Period']['Point']
+        
+        # Create DataFrame from response
+        df_temp = pd.DataFrame()
+        for i in range(len(dict_values)):
+            df_temp = pd.concat([df_temp, pd.DataFrame.from_dict([dict_values[i]])], ignore_index=True)
+
+        # Add UTC date to dataframe
+        date_UTC = datetime.strptime(list_resp['Period']['timeInterval']['start'], "%Y-%m-%dT%H:%MZ")
+        date_UTC = date_UTC.replace(tzinfo = ZoneInfo('UTC'))
+        
+        df_temp['date_UTC'] = date_UTC
+
+        if len(df_temp) < 30:
+            frequency = 'h'
+            div = 1
+        else:
+            frequency = '15min'
+            div = 4
+        df = pd.concat([df, df_temp])
+
+    df['position'] = df['position'].astype(int) - 1
+    df['price.amount'] = df['price.amount'].astype(float)
+
+    # Calculate UTC datetime
+    df = df.assign(datetime_UTC = lambda d: d['date_UTC'] + pd.to_timedelta(d['position'], unit = 'h')/div)
+    # Interpolation of datetime_UTC, to find missing hours
+    df = df.set_index('datetime_UTC')
+    full_index = pd.date_range(df.index.min(), df.index.max(), freq=frequency)
+    df = df.reindex(full_index).reset_index()
+
+    # Convert to CET time, keep necessary columns
+    df['datetime_CET'] = df['index'].dt.tz_convert('Europe/Amsterdam')
+    df = df.drop(columns=['position', 'date_UTC'])
+    df = df.rename(columns = {'index': 'datetime_UTC', 'price.amount': 'price_eur_mwh'})
+        
+    df = df.iloc[:, [0, 2, 1]]
+    
+    return df
 
 @st.cache_data
 # Simulatie voor het laadmodel MET de optie voor bijladen langs de snelweg
@@ -250,6 +371,9 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     agg_dict = {**agg_dict, **optional_dict}
 	
     df = df.groupby(['Voertuig','activiteit_g']).agg(agg_dict).reset_index(drop = False).drop('activiteit_g', axis = 1)
+    
+    ### Toevoegen van functie waarmee je de prijzen aan het dataframe merged
+    df = add_day_ahead_prices(df)
 
     df['Duur'] = (df['Einddatum en -tijd'] - df['Begindatum en -tijd']).apply(lambda x: x.total_seconds())
     df['nacht'] = np.where(((df.Afstand < 3) & (df.Duur > 6*3600)),1,0)
