@@ -142,7 +142,7 @@ def add_day_ahead_prices(df, aansluittijd = 600):
         
 @st.cache_data
 # Functie voor het ophalen van extra data van de ENTSO-E API. Vraag hiervoor een API-token op   
-def get_day_ahead_prices(token, date_start, date_end = ''):
+def get_day_ahead_prices(date_start, date_end = ''):
     
     import requests
     import pandas as pd
@@ -150,6 +150,9 @@ def get_day_ahead_prices(token, date_start, date_end = ''):
     import xmltodict
     import json
     from zoneinfo import ZoneInfo
+    import streamlit as st
+    
+    API_token = st.secrets["api_keys"]["api_entsoe"]
 
     # Set end date to start date if request is for one day only
     if date_end == '':
@@ -169,7 +172,7 @@ def get_day_ahead_prices(token, date_start, date_end = ''):
     
         # ENTSO-E parameters
         params = {
-            'securityToken': token,
+            'securityToken': API_token,
             'documentType': 'A44',  # Day-ahead prices
             'in_Domain': '10YNL----------L', # Bidding zone NL
             'out_Domain': '10YNL----------L',

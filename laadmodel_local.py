@@ -46,6 +46,7 @@ def unique_dates(df):
 locale.setlocale(locale.LC_TIME, 'nl_NL.utf8')
 
 df = pd.read_excel('template.xlsx', sheet_name = 'ritten')
+df['Activiteit_id'] = df.index
 df['Positie'] = df['Positie'].str.strip()
 
 csv = """
@@ -101,6 +102,9 @@ prices['Datum'] = prices['datetime_CET'].dt.date
 
 df_laden = df[df['Laden']==1]
 df_laden = pd.concat((find_prices(row, prices) for _, row in df_laden.iterrows()), ignore_index=True)
+
+df_laden['Aansluittijd'] = df_laden.apply(lambda g: min(600, (g['datetime_CET_end'] - g['Begindatum en -tijd']).total_seconds(), max(600 - (g['datetime_CET'] - g['Begindatum en -tijd']).total_seconds(), 0)), axis = 1)
+
 df_laden['Begindatum en -tijd'] = df_laden[['Begindatum en -tijd', 'datetime_CET']].max(axis = 1)
 df_laden['Einddatum en -tijd'] = df_laden[['Einddatum en -tijd', 'datetime_CET_end']].min(axis = 1)
 df_laden = df_laden[['Voertuig', 'Begindatum en -tijd', 'Einddatum en -tijd', 'Positie', 'Afstand', 'Activiteit', 'Datum', 'Laden', 'price_eur_mwh']]
