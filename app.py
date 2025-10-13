@@ -56,11 +56,33 @@ def bijladen_einde_rit(df, laadvermogen = 44, battery = 300, aansluittijd = 600)
     return df_result
 
 @st.cache_data
+# Hulpfunctie voor het vinden van alle datums bij laadactiviteiten
+def create_date_range(row):
+    result = pd.date_range(start=row['Begindatum'], end=row['Einddatum'], freq='D')
+    
+    return result
+
+@st.cache_data
+# Vind alle datums in de dataset die bij laadactiviteiten horen
+def unique_dates(df):
+    df1 = df.copy()
+    df1 = df1[df1['Laden']==1]
+    
+    df1['Begindatum'] = df1['Begindatum en -tijd'].dt.date
+    df1['Einddatum'] = df1['Einddatum en -tijd'].dt.date
+    df1['daterange'] = df1.apply(create_date_range, axis=1)
+    df1 = df1.explode('daterange')
+    datums_uniek = df1['daterange'].drop_duplicates()
+    return datums_uniek
+
+@st.cache_data
 # Match prijzen met de juiste rijen in de data
 def match_prices(row, prices):
+    # Maak relevante kolommen aan voor prices tabel
     prices = prices[['datetime_CET', 'price_eur_mwh']].sort_values(by = 'datetime_CET')
     prices['datetime_CET_end'] = prices['datetime_CET'].shift(-1)
     prices['Datum'] = prices['datetime_CET'].dt.date 
+    
     prices_filter = prices.loc[prices['datetime_CET_end'] > row['Begindatum en -tijd']]
     prices_filter = prices_filter.loc[prices_filter['datetime_CET'] < row['Einddatum en -tijd']]
 
@@ -69,22 +91,54 @@ def match_prices(row, prices):
 
 @st.cache_data
 # Functie voor het toevoegen van een extra regel als aan het einde van de rit de accu nog niet terug is volgeladen
-def add_day_ahead_prices(df):
-    
+def add_day_ahead_prices(df, aansluittijd = 600):
+    API_token = '7232a6a9-896c-42a1-8292-33821af5925e'
     # Laad prijzen in vanuit Excelbestand in repository
     prices_path = 'day_ahead_prices.xlsx'
     prices = pd.read_excel(prices_path, engine='openpyxl')
     
+    # Haal prijzen op via ENTSO-E API wanneer geen prijzen beschikbaar zijn
+    # TODO: variabele instelbaar maken via app. Vaste prijs of variabele prijs
+    variable_price = True
+    datums_uniek = unique_dates(df)
+
+    if variable_price:
+        for i in datums_uniek:
+            i = pd.Timestamp(i).tz_localize(None)
+            if not (prices['datetime_CET'].dt.date == i.date()).any():
+                print(f"Prijzen voor {i} ontbreken — ophalen via ENTSO-E API")
+                # Probeer prijzen voor datum i op te halen op ENTSO-E API
+                try:
+                    a = get_day_ahead_prices(API_token, i.strftime('%Y%m%d'))
+                    a['datetime_CET'] = a['datetime_CET'].dt.tz_localize(None)
+                    a['datetime_UTC'] = a['datetime_UTC'].dt.tz_localize(None)
+                    print(f'Prices found for {i}')
+                    
+                    # Voeg prijsdata samen met bestaande prijsdata
+                    prices = pd.concat([prices,a])
+                # Wanneer API fout geeft, throw exception
+                except:
+                    print(f'No day ahead prices available for {i}')
+
+    else:
+        # Werk met een vaste elektriciteitsprijs, gegeven door het bedrijf of een standaardwaarde
+        print('fixed_prices')
+    
     df_laden = df[df['Laden']==1]
     df_laden = pd.concat((match_prices(row, prices) for _, row in df_laden.iterrows()), ignore_index=True)
+    df_laden['Aansluittijd'] = df_laden.apply(lambda g: min(aansluittijd, (g['datetime_CET_end'] - g['Begindatum en -tijd']).total_seconds(), max(aansluittijd - (g['datetime_CET'] - g['Begindatum en -tijd']).total_seconds(), 0)), axis = 1)
     df_laden['Begindatum en -tijd'] = df_laden[['Begindatum en -tijd', 'datetime_CET']].max(axis = 1)
     df_laden['Einddatum en -tijd'] = df_laden[['Einddatum en -tijd', 'datetime_CET_end']].min(axis = 1)
-    df_laden = df_laden[['Voertuig', 'Begindatum en -tijd', 'Einddatum en -tijd', 'Positie', 'Afstand', 'Activiteit', 'Datum', 'Laden', 'price_eur_mwh']]
-        
+    df_laden = df_laden[['Voertuig', 'Begindatum en -tijd', 'Einddatum en -tijd', 'Positie', 'Afstand', 'Activiteit', 'Datum', 'Laden', 'Aansluittijd', 'price_eur_mwh']]
     df_niet_laden = df[df['Laden']!=1]
+    df_niet_laden['Aansluittijd'] = np.nan
     result =  pd.concat([df_niet_laden, df_laden])
     
+    print(result)
+    
     return result
+
+
         
 @st.cache_data
 # Functie voor het ophalen van extra data van de ENTSO-E API. Vraag hiervoor een API-token op   
@@ -188,8 +242,8 @@ def simulate2(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aa
     	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1) | (df2['nacht'] == 1), df2['Duur'],0) # thuis, 's nachts of tijdens activiteit 		
 		
     df2['Laadtijd'] = np.where((df2['Activiteit'] == 'Rijden') | (df2['Afstand'] >= 3), 0, df2['Laadtijd']) # niet AC-laden tijdens rijden  		
-    df2['laad_potentiaal1'] =df2['Laadtijd'].apply(lambda x: min(battery,
-                                                           max(0,((x-aansluittijd)/3600))*laadvermogen))
+    df2['laad_potentiaal1'] =df2.apply(lambda x: min(battery,
+                                    max(0,((x['Laadtijd']-x['Aansluittijd'])/3600))*laadvermogen))
     df2 = df2.merge(tekort_snel(df2, battery = battery, zuinig = zuinig), left_index = True, right_index = True, how = 'left')
     df2['bijladen_snel'] = df2['bijladen_snel'].fillna(0)
     df2['bijladen'] = df2['bijladen'].fillna(0)
@@ -250,7 +304,7 @@ def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aan
         energie_update = energie_update + bijladen_snel_update
         bijladen_snel.append(bijladen_snel_update)
         
-        bijladen_update = min(laadvermogen*(max(0, df2.iloc[i]['Laadtijd']-aansluittijd)/3600), battery - energie_update)
+        bijladen_update = min(laadvermogen*(max(0, df2.iloc[i]['Laadtijd']-df2.iloc[i]['Aansluittijd'])/3600), battery - energie_update)
         energie_update = energie_update + bijladen_update
         bijladen.append(bijladen_update)
         verbruik.append(verbruik_update)
@@ -381,14 +435,16 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     if df.Voertuig.nunique() == 1: 
         df['RitID'] = (df['nacht'] < df.shift().fillna(method='bfill')['nacht']).cumsum()
     else: 
-	    df['RitID'] = (df.groupby('Voertuig',group_keys=False).
-                      apply(lambda g: (g['nacht'] < g.shift().fillna(method='bfill')['nacht']).cumsum()))
+        df['RitID'] = df.groupby('Voertuig')['nacht'].transform(
+            lambda g: (g < g.shift().fillna(method='bfill')).cumsum()
+            )
 
     df_locatie = pd.read_excel(file, sheet_name = 'laadlocaties').assign(thuis = 1)
     df = df.merge(df_locatie, how = 'left', on = 'Positie')
+
     df['thuis'] = df.thuis.fillna(0)
     df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index()
-	
+
     if snelwegladen == 0: 
     	df_results = (df.
     			groupby(['Voertuig']).
@@ -398,13 +454,18 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     			groupby(['Voertuig', 'RitID']).
     			apply(lambda g: simulate2(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen)))
     
+    print('Point 3')
+
     df = df.merge(df_results, on = 'index', how = 'left')
+    print('Point 4')
 	
     df['vertraging'] = np.where(df['bijladen_snel'] > 0, 600 + (3600*df['bijladen_snel']/laadvermogen_snel),0)
     
     # Voeg een extra regel toe voor ieder voertuig wanneer extra bijladen nodig is
     df = df.groupby('Voertuig').apply(lambda g: bijladen_einde_rit(g, laadvermogen = laadvermogen, battery = battery, aansluittijd = aansluittijd), include_groups = False)
     df = df.reset_index(level=1, drop=True).reset_index()
+    print('Point 5')
+
     df = df.drop('index', axis = 1)
     
     return df

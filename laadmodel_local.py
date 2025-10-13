@@ -67,7 +67,7 @@ df['Laden'] = df.Laden.fillna(0)
 datums_uniek = unique_dates(df)
 
 prices = pd.read_excel('day_ahead_prices.xlsx')
-prices['datetime_CET'] = pd.to_datetime(prices['datetime_CET'].astype('datetime64[ns]')) 
+#prices['datetime_CET'] = pd.to_datetime(prices['datetime_CET'].astype('datetime64[ns]')) 
 
 #a = get_day_ahead_prices(API_token, '20251009')
 
@@ -82,6 +82,7 @@ if variable_price:
             try:
                 a = get_day_ahead_prices(API_token, i.strftime('%Y%m%d'))
                 a['datetime_CET'] = a['datetime_CET'].dt.tz_localize(None)
+                a['datetime_UTC'] = a['datetime_UTC'].dt.tz_localize(None)
                 print(f'Prices found for {i}')
                 
                 # Voeg prijsdata samen met bestaande prijsdata
@@ -105,7 +106,7 @@ df_laden['Einddatum en -tijd'] = df_laden[['Einddatum en -tijd', 'datetime_CET_e
 df_laden = df_laden[['Voertuig', 'Begindatum en -tijd', 'Einddatum en -tijd', 'Positie', 'Afstand', 'Activiteit', 'Datum', 'Laden', 'price_eur_mwh']]
 
 df = df.loc[df['Laden']==0]
-df2 = pd.concat([df, df_laden])
+df = pd.concat([df, df_laden])
 
 
 df['Duur'] = (df['Einddatum en -tijd'] - df['Begindatum en -tijd']).apply(lambda x: x.total_seconds())
