@@ -14,9 +14,12 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import locale
 from io import StringIO
+import streamlit as st
+import requests
+import base64
+import io
 
-API_token = '7232a6a9-896c-42a1-8292-33821af5925e'
-
+API_token = st.secrets["api_keys"]["api_entsoe"]
 
     
 def find_prices(row, prices):
@@ -46,7 +49,6 @@ def unique_dates(df):
 locale.setlocale(locale.LC_TIME, 'nl_NL.utf8')
 
 df = pd.read_excel('template.xlsx', sheet_name = 'ritten')
-df['Activiteit_id'] = df.index
 df['Positie'] = df['Positie'].str.strip()
 
 csv = """
@@ -70,7 +72,7 @@ datums_uniek = unique_dates(df)
 prices = pd.read_excel('day_ahead_prices.xlsx')
 #prices['datetime_CET'] = pd.to_datetime(prices['datetime_CET'].astype('datetime64[ns]')) 
 
-#a = get_day_ahead_prices(API_token, '20251009')
+a = get_day_ahead_prices(API_token, '20251009')
 
 variable_price = True
 
@@ -95,10 +97,30 @@ if variable_price:
 else:
     # Werk met een vaste elektriciteitsprijs, gegeven door het bedrijf of een standaardwaarde
     print('fixed_prices')
+
+gh_token = st.secrets["api_keys"]['GH_token']
+repo = st.secrets['api_keys']['repo']
+file_path = st.secrets['api_keys']['file_path']
+
+try:
+    url = f'https://api.github.com/repos/{repo}/contents/{file_path}'
+    headers = {"Authorization": f"token {gh_token}"}
+    print(response.status_code)
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        content = base64.b64decode(response.json()["content"])
+        df = pd.read_excel(io.BytesIO(content))
+        sha = response.json()["sha"]
+    
+except:
+    print('Uploaden van bestand gefaald')
     
 prices = prices[['datetime_CET', 'price_eur_mwh']].sort_values(by = 'datetime_CET')
 prices['datetime_CET_end'] = prices['datetime_CET'].shift(-1)
 prices['Datum'] = prices['datetime_CET'].dt.date
+
+df['Activiteit_id'] = df.index
+
 
 df_laden = df[df['Laden']==1]
 df_laden = pd.concat((find_prices(row, prices) for _, row in df_laden.iterrows()), ignore_index=True)
@@ -107,7 +129,7 @@ df_laden['Aansluittijd'] = df_laden.apply(lambda g: min(600, (g['datetime_CET_en
 
 df_laden['Begindatum en -tijd'] = df_laden[['Begindatum en -tijd', 'datetime_CET']].max(axis = 1)
 df_laden['Einddatum en -tijd'] = df_laden[['Einddatum en -tijd', 'datetime_CET_end']].min(axis = 1)
-df_laden = df_laden[['Voertuig', 'Begindatum en -tijd', 'Einddatum en -tijd', 'Positie', 'Afstand', 'Activiteit', 'Datum', 'Laden', 'price_eur_mwh']]
+df_laden = df_laden[['Voertuig', 'Activiteit_id', 'Begindatum en -tijd', 'Einddatum en -tijd', 'Aansluittijd', 'Positie', 'Afstand', 'Activiteit', 'Datum', 'Laden', 'price_eur_mwh']]
 
 df = df.loc[df['Laden']==0]
 df = pd.concat([df, df_laden])
@@ -129,19 +151,34 @@ df['thuis'] = df.thuis.fillna(0)
 nachtladen = 1
 activiteitenladen = 1
 
-if (nachtladen == 0) & (activiteitenladen == 0):
-    df['Laadtijd'] = np.where((d2['thuis'] == 1), df['Duur'],0) # alleen thuis laden
-elif (nachtladen == 1) & (activiteitenladen == 0):
-    df['Laadtijd'] = np.where((df['thuis'] == 1) | (df['nacht'] == 1), df['Duur'],0) # thuis of 's nachts laden
-elif (nachtladen == 0) & (activiteitenladen == 1):
-    df['Laadtijd'] = np.where((df['thuis'] == 1) | (df['Laden'] == 1), df['Duur'],0) # thuis of tijdens activiteit
-elif (nachtladen == 1) & (activiteitenladen == 1):
-    df['Laadtijd'] = np.where((df['thuis'] == 1) | (df['Laden'] == 1) | (df['nacht'] == 1), df['Duur'],0) # thuis, 's nachts of tijdens activiteit
+df2 = simulate(df)
+df = df.merge(df2, on = 'index', how = 'left')
 
-df['Laadtijd'] = np.where((df['Activiteit'] == 'Rijden') | (df['Afstand'] >= 3), 0, df['Laadtijd']) # niet AC-laden tijdens rijden  		
 df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index()
 
+# Groepeer op activiteit_id om gesplitste rijen voor uur/kwartierprijzen terug te brengen naar 1 activiteit
+agg_dict = {'Activiteit' : 'first',
+                'Positie' : 'first',
+                'Afstand' : 'first',
+                'Begindatum en -tijd' : 'min',
+                'Einddatum en -tijd' : 'max',
+                'bijladen' : 'sum'
+                }
+    
+#optional_dict = {key : 'first' for key in optional_columns}
+#agg_dict = {**agg_dict, **optional_dict}
 
+df_g = df.groupby('Activiteit_id').agg(agg_dict)
+
+
+kosten = df.groupby('Activiteit_id').apply(
+    lambda g: np.dot(g['price_eur_mwh'], g['bijladen']/1000)
+)
+
+gemiddelde_prijs = df.groupby('Activiteit_id').apply(lambda g: np.dot(g['price_eur_mwh'], g['bijladen'])/(1000*g['bijladen'].sum()))
+
+
+df_g2 = df_g.join([kosten, gemiddelde_prijs])
 # Function to connect with ENTSO-E API and to retrieve 
 
 # token: API_token: first request an API-token to the ENTSO-E transparency platform
@@ -234,3 +271,46 @@ def get_day_ahead_prices(token, date_start, date_end = ''):
     df = df.iloc[:, [0, 2, 1]]
     
     return df
+
+# Simulatie voor het laadmodel ZONDER de optie voor bijladen langs de snelweg
+def simulate(df2, zuinig = 1.25, laadvermogen = 44, laadvermogen_snel = 150, aansluittijd = 600, battery = 300, nachtladen = 0, activiteitenladen = 0):
+    
+    if (nachtladen == 0) & (activiteitenladen == 0):
+    	df2['Laadtijd'] = np.where((df2['thuis'] == 1), df2['Duur'],0) # alleen thuis laden
+    elif (nachtladen == 1) & (activiteitenladen == 0):
+    	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['nacht'] == 1), df2['Duur'],0) # thuis of 's nachts laden
+    elif (nachtladen == 0) & (activiteitenladen == 1):
+    	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1), df2['Duur'],0) # thuis of tijdens activiteit
+    elif (nachtladen == 1) & (activiteitenladen == 1):
+    	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1) | (df2['nacht'] == 1), df2['Duur'],0) # thuis, 's nachts of tijdens activiteit
+
+    df2['Laadtijd'] = np.where((df2['Activiteit'] == 'Rijden') | (df2['Afstand'] >= 3), 0, df2['Laadtijd']) # niet AC-laden tijdens rijden  		
+
+    energy = [battery]
+    verbruik = []
+    bijladen = []
+    bijladen_snel = []
+    
+    for i in range(df2.shape[0]):
+    
+        verbruik_update = -df2.iloc[i]['Afstand']*zuinig
+        energie_update = energy[i] + verbruik_update
+        
+        bijladen_snel_update = 0
+        energie_update = energie_update + bijladen_snel_update
+        bijladen_snel.append(bijladen_snel_update)
+        
+        bijladen_update = min(laadvermogen*(max(0, df2.iloc[i]['Laadtijd']-df2.iloc[i]['Aansluittijd'])/3600), battery - energie_update)
+        energie_update = energie_update + bijladen_update
+        bijladen.append(bijladen_update)
+        verbruik.append(verbruik_update)
+        energy.append(energie_update)
+    
+    df2['index'] = df2.index
+    return_df = pd.DataFrame({'energie' : energy[:-1],
+                              'verbruik': verbruik,
+                             'bijladen' : bijladen,
+                             'bijladen_snel' : bijladen_snel,
+							 'index' : df2['index']}, index = df2.index)
+
+    return return_df
