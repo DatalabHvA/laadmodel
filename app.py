@@ -189,10 +189,10 @@ def aggregate_hourly_costs(df):
 
     df_g = df.groupby('Activiteit_id').agg(agg_dict)#.reset_index(drop = False)#.drop('Activiteit_id', axis = 1)
     df = df_g.join([laadkosten, gemiddelde_prijs])
-    print('check 3')
+
     df['Laadkosten (EUR)'] = df['Laadkosten (EUR)'].fillna(0)
     df['Gemiddelde laadprijs (EUR/kWh)'] = df['Gemiddelde laadprijs (EUR/kWh)'].fillna(0)
-    print('check 4')
+
     return df
 
 @st.cache_data
@@ -218,8 +218,7 @@ def bijladen_einde_rit(df, prices, laadvermogen = 44, battery = 540, aansluittij
         lastrow['bijladen'] = (battery - eindstand)
         lastrow['Duur'] = aansluittijd + lastrow['bijladen']/laadvermogen*3600
         lastrow['Einddatum en -tijd'] = lastrow['Begindatum en -tijd'] + timedelta(seconds = lastrow['Duur'])
-        # lastrow['price_eur_mwh'] = prices.loc[(prices['datetime_CET'] < lastrow['Begindatum en -tijd']) & (prices['datetime_CET_end'] > lastrow['Begindatum en -tijd']), 'price_eur_mwh'].iloc[0]
-        print(lastrow['price_eur_mwh'])
+        lastrow['price_eur_mwh'] = prices.loc[(prices['datetime_CET'] < lastrow['Begindatum en -tijd']) & (prices['datetime_CET_end'] > lastrow['Begindatum en -tijd']), 'price_eur_mwh'].iloc[0]
         
         # TO DO: laadkosten laatste regel worden nu berekend op uurprijs van de start van de activiteit
         lastrow['Laadkosten (EUR)'] = lastrow['bijladen']*lastrow['price_eur_mwh']/1000
@@ -500,11 +499,9 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     # Voeg een extra regel toe voor ieder voertuig wanneer extra bijladen nodig is
     df = df.groupby('Voertuig').apply(lambda g: bijladen_einde_rit(g, prices, laadvermogen = laadvermogen, battery = battery, aansluittijd = aansluittijd), include_groups = False)
     df = df.reset_index(level=1, drop=True).reset_index()
-    print('check 5')
     df = df.drop('index', axis = 1)
     
     df = df[['Voertuig', 'Activiteit', 'Datum', 'Begindatum en -tijd', 'Einddatum en -tijd', 'Positie', 'Afstand', 'Laden', 'Duur', 'nacht', 'RitID', 'thuis', 'energie', 'verbruik', 'bijladen', 'bijladen_snel', 'Laadkosten (EUR)', 'Gemiddelde laadprijs (EUR/kWh)', 'vertraging']]
-    print('check 6')
     
     return df
 
