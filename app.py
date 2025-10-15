@@ -57,7 +57,7 @@ def match_prices(row, prices):
 
     result = prices_filter.assign(**row.to_dict())
     
-    # TODO: zorg ervoor dat tijdstippen waar geen prijs voor bestaat niet uit de data worden gehaald
+    # TODO: zorg ervoor dat tijdstippen waar geen prijs voor bestaat niet verwijderd worden. Oplossing: Plak nullen op einde, tussenliggende punten worden al doorgetrokken
     return result
 
 @st.cache_data
@@ -199,7 +199,8 @@ def aggregate_hourly_costs(df):
 # Functie voor het toevoegen van een extra regel als aan het einde van de rit de accu nog niet terug is volgeladen
 def bijladen_einde_rit(df, prices, laadvermogen = 44, battery = 540, aansluittijd = 600):
     df_result = df.copy()
-    
+   
+    df = df.fillna(method = 'ffill')
     lastrow = df.iloc[-1].copy()
     eindstand = lastrow['energie'] + lastrow['verbruik'] + lastrow['bijladen'] + lastrow['bijladen_snel']
 
@@ -217,7 +218,8 @@ def bijladen_einde_rit(df, prices, laadvermogen = 44, battery = 540, aansluittij
         lastrow['bijladen'] = (battery - eindstand)
         lastrow['Duur'] = aansluittijd + lastrow['bijladen']/laadvermogen*3600
         lastrow['Einddatum en -tijd'] = lastrow['Begindatum en -tijd'] + timedelta(seconds = lastrow['Duur'])
-        lastrow['price_eur_mwh'] = prices.loc[(prices['datetime_CET'] < lastrow['Begindatum en -tijd']) & (prices['datetime_CET_end'] > lastrow['Begindatum en -tijd']), 'price_eur_mwh'].iloc[0]
+        # lastrow['price_eur_mwh'] = prices.loc[(prices['datetime_CET'] < lastrow['Begindatum en -tijd']) & (prices['datetime_CET_end'] > lastrow['Begindatum en -tijd']), 'price_eur_mwh'].iloc[0]
+        print(lastrow['price_eur_mwh'])
         
         # TO DO: laadkosten laatste regel worden nu berekend op uurprijs van de start van de activiteit
         lastrow['Laadkosten (EUR)'] = lastrow['bijladen']*lastrow['price_eur_mwh']/1000
@@ -431,11 +433,6 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     prices_path = 'day_ahead_prices.xlsx'
     prices = pd.read_excel(prices_path, engine='openpyxl')
     
-    # Maak relevante kolommen aan voor prices tabel
-    prices = prices[['datetime_CET', 'price_eur_mwh']].sort_values(by = 'datetime_CET')
-    prices['datetime_CET_end'] = prices['datetime_CET'].shift(-1)
-    prices['Datum'] = prices['datetime_CET'].dt.date
-    
     # Haal prijzen op via ENTSO-E API wanneer geen prijzen beschikbaar zijn
     # TODO: variabele instelbaar maken via app. Vaste prijs of variabele prijs
     variable_price = True
@@ -461,10 +458,14 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     else:
         # Werk met een vaste elektriciteitsprijs, gegeven door het bedrijf of een standaardwaarde
         print('fixed_prices')
+        
+    # Maak relevante kolommen aan voor prices tabel
+    prices = prices[['datetime_CET', 'price_eur_mwh']].sort_values(by = 'datetime_CET')
+    prices['datetime_CET_end'] = prices['datetime_CET'].shift(-1)
+    prices['Datum'] = prices['datetime_CET'].dt.date
     
     # Prijzen mergen aan het dataframe
     df = add_day_ahead_prices(df, prices)
-
     df['Duur'] = (df['Einddatum en -tijd'] - df['Begindatum en -tijd']).apply(lambda x: x.total_seconds())
     df['nacht'] = np.where(((df.Afstand < 3) & (df.Duur > 6*3600)),1,0)
 
@@ -499,10 +500,11 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     # Voeg een extra regel toe voor ieder voertuig wanneer extra bijladen nodig is
     df = df.groupby('Voertuig').apply(lambda g: bijladen_einde_rit(g, prices, laadvermogen = laadvermogen, battery = battery, aansluittijd = aansluittijd), include_groups = False)
     df = df.reset_index(level=1, drop=True).reset_index()
-
+    print('check 5')
     df = df.drop('index', axis = 1)
     
     df = df[['Voertuig', 'Activiteit', 'Datum', 'Begindatum en -tijd', 'Einddatum en -tijd', 'Positie', 'Afstand', 'Laden', 'Duur', 'nacht', 'RitID', 'thuis', 'energie', 'verbruik', 'bijladen', 'bijladen_snel', 'Laadkosten (EUR)', 'Gemiddelde laadprijs (EUR/kWh)', 'vertraging']]
+    print('check 6')
     
     return df
 
