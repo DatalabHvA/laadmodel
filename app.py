@@ -641,7 +641,39 @@ def download_template():
     st.download_button('Download Template', template_data, file_name='template.xlsx')
 
 
+def table_kosten(df, energiebelasting = 0.00321):
+    
+    # Let op: energiebelasting is afhankelijk van jaarverbruik: https://www.belastingdienst.nl/wps/wcm/connect/bldcontentnl/belastingdienst/zakelijk/overige_belastingen/belastingen_op_milieugrondslag/energiebelasting/
+    laadkosten_epex = sum(df['Laadkosten (EUR)'])
+    energiebelasting_totaal = sum(df['bijladen'])*energiebelasting
+    
+    tabel = {
+        'Categorie': ['Laadkosten EPEX', 'Energiebelasting'],
+        'Kosten': [f"€{format_nl_smart(laadkosten_epex)}", f"€{format_nl_smart(energiebelasting_totaal)}"],
+        'Aanname': ['Op basis van variabele day-aheadprijzen op het moment van laden', f'Uitgaande van het tarief van €{format_nl_smart(energiebelasting,5)}/kWh']
+}            
+    
+    totale_kosten = laadkosten_epex + energiebelasting_totaal
+    totale_kms = sum(df['Afstand'])
+    kosten_per_km = totale_kosten/totale_kms
+    
+    return tabel, totale_kosten, totale_kms, kosten_per_km
+
+def format_nl_smart(x, decimals = 2):
+    import locale
+    locale.setlocale(locale.LC_ALL, 'nl_NL.UTF-8')
+    if pd.isna(x):
+        return ""
+    if float(x).is_integer():
+        # Geheel getal → geen decimalen
+        return locale.format_string("%d", int(x), grouping=True)
+    else:
+        # Niet-geheel → 2 decimalen
+        return locale.format_string(f"%.{decimals}f", x, grouping=True)
+
+
 def main():
+    
     st.title('Laadmodel ZEC')
     st.write("De resultaten van deze tool zijn informatief.  \nDe verstrekte informatie kan onvolledig of niet geheel juist zijn.  \nAan de resultaten van deze tool kunnen geen rechten worden ontleend.")
 
@@ -654,18 +686,35 @@ def main():
     nachtladen = st.checkbox('Altijd opladen tijdens overnachting op alle locaties')
     activiteitenladen = st.checkbox('Ook opladen tijdens geselecteerde activiteiten')
     snelwegladen = st.checkbox('Extra snelladen toestaan langs de snelweg')
+    
 
     if uploaded_file is not None:
         try:
             check_file(uploaded_file)
             battery, zuinig, aansluittijd, laadvermogen, laadvermogen_snel = get_params(uploaded_file)
             df = process_excel_file(uploaded_file, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, laadvermogen_snel = laadvermogen_snel, nachtladen = nachtladen, activiteitenladen = activiteitenladen, snelwegladen = snelwegladen)
+            
             st.header('Modelresultaten:')
             show_haalbaarheid(df)
             show_demand_table(df)            
             plot_demand(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, laadvermogen_snel = laadvermogen_snel)
             st.subheader('De eerste 15 regels van het outputbestand')
-            st.dataframe(df.head(15))
+            st.dataframe(df.head(15).style.format({
+                'Afstand': format_nl_smart,
+                'Laden': format_nl_smart,
+                'bijladen': format_nl_smart,
+                'bijladen_snel': format_nl_smart,
+                'Laadkosten (EUR)': format_nl_smart,
+                'Gemiddelde laadprijs (EUR/kWh)': format_nl_smart,
+                'Duur': format_nl_smart,
+                'thuis': format_nl_smart,
+                'energie': format_nl_smart,
+                'verbruik': format_nl_smart,
+                'vertraging': format_nl_smart
+                }))
+            st.subheader('Totale kosten elektrisch vervoer: €' + f"{format_nl_smart(table_kosten(df)[1])}")
+            st.table(table_kosten(df)[0],)
+            st.write(f'De laadkosten voor het uitvoeren van {format_nl_smart(table_kosten(df)[2])} kilometers zijn €{format_nl_smart(table_kosten(df)[1])}. Dat is €{format_nl_smart(table_kosten(df)[3],3)} per km')
             download_excel(df)
         except Exception as e:
             st.error(f'Error processing the file: {e}')
