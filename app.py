@@ -248,7 +248,8 @@ def bijladen_einde_rit(df, prices, laadvermogen = [44], battery = [540], aanslui
 
 @st.cache_data
 # Simulatie voor het laadmodel MET de optie voor bijladen langs de snelweg
-def simulate2(df2, zuinig = [1.26], laadvermogen = [44], laadvermogen_snel = 150, aansluittijd = [600], battery = [540], nachtladen = 0, activiteitenladen = 0, type_voertuigen = 1):
+# TODO: bepalen of deze functie overbodig is
+def simulate2(df2, zuinig = [1.26], laadvermogen = [44], aansluittijd = [600], battery = [540], nachtladen = 0, activiteitenladen = 0, type_voertuigen = 1):
 
     if (nachtladen == 0) & (activiteitenladen == 0):
     	df2['Laadtijd'] = np.where((df2['thuis'] == 1), df2['Duur'],0) # alleen thuis laden
@@ -318,7 +319,7 @@ def simulate2(df2, zuinig = [1.26], laadvermogen = [44], laadvermogen_snel = 150
 
 @st.cache_data
 # Simulatie voor het laadmodel ZONDER de optie voor bijladen langs de snelweg
-def simulate(df2, zuinig = [1.26], laadvermogen = [44], laadvermogen_snel = 150, aansluittijd = [600], battery = [540], nachtladen = 0, activiteitenladen = 0, type_voertuigen = 1, snelwegladen = 0):    
+def simulate(df2, zuinig = [1.26], laadvermogen = [44], aansluittijd = [600], battery = [540], nachtladen = 0, activiteitenladen = 0, type_voertuigen = 1, snelwegladen = 0):    
 
     if (nachtladen == 0) & (activiteitenladen == 0):
     	df2['Laadtijd'] = np.where((df2['thuis'] == 1), df2['Duur'],0) # alleen thuis laden
@@ -409,7 +410,7 @@ def charge_hour(df, laadvermogen = [44], laadvermogen_snel = 150, aansluittijd =
     df_hour['Time'] = df_hour['StartTime'].dt.time
     return df_hour
 
-
+#TODO: aanpassingen van deze functie in charge_hour opnemen
 def charge_quarter(df, laadvermogen = [44], aansluittijd = [600], battery = [540], smart = 0):
     df_bijladen = df.loc[df.bijladen > 0].copy()
     
@@ -454,8 +455,8 @@ def check_file(file):
     sheetnames = xl.sheet_names  # see all sheet names
 
     # Check if the DataFrame has the required column name
-    if sorted(sheetnames) != ['laadlocaties', 'laden', 'parameters', 'ritten']:
-        error_message = 'het inputbestand moet sheets bevatten met de namen "ritten", "laden", "parameters" en "laadlocaties". Gebruik het template als voorbeeld.'
+    if sorted(sheetnames) != ['laadlocaties', 'laden', 'ritten']:
+        error_message = 'het inputbestand moet sheets bevatten met de namen "ritten", "laden" en "laadlocaties". Gebruik het template als voorbeeld.'
         st.error(error_message)
         st.stop()
 		
@@ -478,11 +479,6 @@ def get_params(file):
 
 @st.cache_data
 def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_snel, nachtladen, activiteitenladen, snelwegladen, laadprijs_snelweg, type_voertuigen = 1):
-    
-    #battery = battery[0]
-    #zuinig = zuinig[0]
-    #aansluittijd = aansluittijd[0]
-    #laadvermogen = laadvermogen[0]
 
     # Read the Excel file into a DataFrame
     df = pd.read_excel(file, sheet_name = 'ritten')
@@ -509,7 +505,6 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     rows['Afstand'] = 0
         
     # Append the new rows and sort the index
-    
     df = pd.concat([df, rows], axis = 0).drop(columns=['lag'])
     
     df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index(drop = True)
@@ -579,6 +574,7 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     df['Duur'] = (df['Einddatum en -tijd'] - df['Begindatum en -tijd']).apply(lambda x: x.total_seconds())
     df['nacht'] = np.where(((df.Afstand < 3) & (df.Duur > 6*3600)),1,0)
 
+    #TODO: bepaal of nacht en RitID nodig zijn voor het model
     if df.Voertuig.nunique() == 1: 
         df['RitID'] = (df['nacht'] < df.shift().fillna(method='bfill')['nacht']).cumsum()
     else: 
@@ -589,8 +585,7 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
 
     df['thuis'] = df.thuis.fillna(0)
     df = df.sort_values(['Voertuig', 'Begindatum en -tijd']).reset_index()
-    #print('Start Simulate')
-
+    
     #if snelwegladen == 0: 
     #    df_results = (df.
     #			groupby(['Voertuig']).
@@ -599,7 +594,6 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     df_results = (df.
     			groupby(['Voertuig']).
     			apply(lambda g: simulate(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen, type_voertuigen = type_voertuigen, snelwegladen = snelwegladen)))
-    #print('End simulate')
 
     df = df.merge(df_results, on = 'index', how = 'left')
     
@@ -615,7 +609,7 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     df = df.groupby('Voertuig').apply(lambda g: bijladen_einde_rit(g, prices, laadvermogen = laadvermogen, battery = battery, aansluittijd = aansluittijd), include_groups = False)
     df = df.reset_index(level=1, drop=True).reset_index()
     df = df.drop('index', axis = 1)
-    #print('Eind bijladen einde rit')
+    
     df = df[['Voertuig','Type voertuig', 'Activiteit', 'Datum', 'Begindatum en -tijd', 'Einddatum en -tijd', 'Positie', 'Afstand', 'Laden', 'Duur', 'nacht', 'RitID', 'thuis', 'energie', 'verbruik', 'bijladen', 'bijladen_snel', 'Laadkosten (EUR)', 'Laadkosten_snel (EUR)', 'Gemiddelde laadprijs (EUR/kWh)', 'vertraging']]
     return df
 
@@ -633,7 +627,7 @@ def show_haalbaarheid(df):
     st.pyplot(fig1)
  
 def show_demand_table(df):
-    st.subheader('Tabel met hoeveelheid geladen energie per locatie (top 10)')
+    st.subheader('Geladen energie per locatie (top 10)')
     bijladen = df.groupby('Positie').bijladen.sum().reset_index()
     bijladen = pd.concat([bijladen,pd.DataFrame({'Positie' : ['Snelweg'],
 	    'bijladen' : [df.bijladen_snel.sum()]})]).sort_values(by = 'bijladen', ascending = False).rename(columns = {'bijladen': 'Hoeveelheid energie geladen (kWu)'})
@@ -699,7 +693,7 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
     # Save the DataFrame to BytesIO as an Excel file
         with pd.ExcelWriter(excel_data, engine='xlsxwriter') as writer:
             for location in charge_locations:
-                temp = (charge_hour(df.loc[df.Positie == location], smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days)
+                temp = (charge_hour(df.loc[df.Positie == location], smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('Time').bijladen.sum()/n_days)
                 temp = df_hour_24h.merge(temp, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
                 temp.to_excel(writer, index=True, sheet_name = location[:31])
 
@@ -886,8 +880,10 @@ def main():
     # File upload
     uploaded_file = st.file_uploader('Upload Excelbestand met rittendata', type=['xlsx'])
 
-    nachtladen = st.checkbox('Altijd opladen tijdens overnachting op alle locaties')
-    activiteitenladen = st.checkbox('Ook opladen tijdens geselecteerde activiteiten')
+    # TODO: besluiten of nachtladen wordt gebruikt
+    #nachtladen = st.checkbox('Altijd opladen tijdens overnachting op alle locaties')
+    nachtladen = 0
+    activiteitenladen = st.checkbox('Laden mogelijk op alle locaties')
     snelwegladen = st.checkbox('Extra snelladen toestaan langs de snelweg')
     
 
