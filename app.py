@@ -7,6 +7,9 @@ import requests
 from io import BytesIO
 from datetime import timedelta
 import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+
 from itertools import product
 
 @st.cache_data
@@ -630,8 +633,8 @@ def show_demand_table(df):
     st.subheader('Geladen energie per locatie (top 10)')
     bijladen = df.groupby('Positie').bijladen.sum().reset_index()
     bijladen = pd.concat([bijladen,pd.DataFrame({'Positie' : ['Snelweg'],
-	    'bijladen' : [df.bijladen_snel.sum()]})]).sort_values(by = 'bijladen', ascending = False).rename(columns = {'bijladen': 'Hoeveelheid energie geladen (kWu)'})
-    st.table(bijladen.reset_index(drop = True).loc[lambda d: d['Hoeveelheid energie geladen (kWu)'] >0].head(10))
+	    'bijladen' : [df.bijladen_snel.sum()]})]).sort_values(by = 'bijladen', ascending = False).rename(columns = {'bijladen': 'Hoeveelheid energie geladen (kWh)'})
+    st.table(bijladen.reset_index(drop = True).loc[lambda d: d['Hoeveelheid energie geladen (kWh)'] >0].head(10))
 
 
 def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_snel, type_voertuigen = 1):
@@ -641,9 +644,9 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
     charge_locations = df.loc[lambda d: d.bijladen >0].groupby('Positie').bijladen.sum().sort_values(ascending = False).index
     charge_locations = pd.Index(['Totaal']).append(charge_locations)
     filter_option = st.selectbox('Selecteer een locatie', charge_locations, index = 0)
-    	
+    
     @st.cache_data
-    def filter_data(df, selected_option, smart = 0):
+    def filter_data(df, selected_option, smart = 0, perc = 95):
         
         if selected_option == 'Totaal':
             df_plot = df.copy()    
@@ -665,71 +668,67 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
             plot_data1['Time'].apply(lambda t: t.hour + t.minute/60 + t.second/3600)
         )
         
+        plot_data1 = plot_data1.groupby('Time')['bijladen'].agg(mean='mean', median='median', p=lambda x: x.quantile(perc/100)).reset_index()
         return plot_data1
 		
-    percentile_choice = st.radio('Percentiel waarde voor error bar',[75,85,95])
+    percentile_choice = st.radio('Percentiel waarde voor error bar',[75,85,95], index=2)
 
 	# Create a demand plot
-    fig, (ax1) = plt.subplots(1, 1, figsize=(12, 6))
+    #fig, (ax1) = plt.subplots(1, 1, figsize=(12, 6))
+    fig = go.Figure()
+    plot_data = filter_data(df, filter_option, 0, percentile_choice)
+    fig.add_trace(go.Scatter(x=plot_data['Time'], y=plot_data['mean'], mode = 'lines', name = 'Normaal laden: Gemiddelde', line_color = '#4248f5'))
+    fig.add_trace(go.Scatter(x=plot_data['Time'], y=plot_data['p'], mode = 'lines', fill = 'tozeroy', name = f'Normaal laden: {percentile_choice}%-percentiel', line_color = "rgba(141, 164, 247, 0)", fillcolor = "rgba(141, 164, 247, 0.2)"))
 
-    sns.lineplot(data = filter_data(df, filter_option,0), x = 'Time_num',y = 'bijladen', errorbar=('pi',percentile_choice), ax = ax1, label = 'regulier laden')
-    #plot_data1.rename(columns = {'bijladen' : 'zonder smart charging'}).plot(ax = ax1)
+    plot_data_smart = filter_data(df, filter_option, 1, percentile_choice)
+    fig.add_trace(go.Scatter(x=plot_data_smart['Time'], y=plot_data_smart['mean'], mode = 'lines', name = 'Slim laden: Gemiddelde', line_color = '#c41f30'))
+    fig.add_trace(go.Scatter(x=plot_data_smart['Time'], y=plot_data_smart['p'], mode = 'lines', fill = 'tozeroy', name = f'Slim laden: {percentile_choice}%-percentiel', line_color = "rgba(252, 149, 158, 0)", fillcolor = "rgba(252, 149, 158, 0.2)"))
 
-    sns.lineplot(data = filter_data(df, filter_option,1), x = 'Time_num',y = 'bijladen', errorbar=('pi',percentile_choice), ax = ax1, color = 'red', label = 'smart charging')
-    ax1.set_ylabel('Totale energievraag transport (kW)')
-    ax1.set_xlabel('Uur van de dag')
-    ax1.set_ylim(bottom=-0.5)
-    plt.legend()
-    plt.tight_layout()
+    fig.update_layout(
+        title="Vermogensvraag per uur",
+        title_x = 0.5,
+        title_xanchor = 'center',
+        title_font = dict(size=24),
+        xaxis_title="Tijd (Uren)",
+        yaxis_title="Gevraagd vermogen (kW)",
+        xaxis = dict(
+            tickmode = 'linear',
+            tick0 = 0,
+            dtick = 12,
+            tickformat = "%H:%M"
+            ),
+        legend=dict(
+            orientation="h",    
+            yanchor="top",
+            y=-0.3, 
+            xanchor="center",
+            x=0.5,
+            traceorder="normal",
+            )
+        )
 
-    st.pyplot(fig)
+    st.plotly_chart(fig, use_container_width=True)
+
 	# Offer the file download
-	
-    if st.button('Download data'):
+    
 		
-        # Create a BytesIO object
-        excel_data = BytesIO()
+    # Create a BytesIO object
+    excel_data = BytesIO()
 
     # Save the DataFrame to BytesIO as an Excel file
-        with pd.ExcelWriter(excel_data, engine='xlsxwriter') as writer:
-            for location in charge_locations:
-                #TODO: deze functie werkend krijgen
-                temp = (charge_quarter(df.loc[df.Positie == location], smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('Time').bijladen.sum()/n_days)
-                temp = df_hour_24h.merge(temp, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
-                temp.to_excel(writer, index=True, sheet_name = location[:31])
+    with pd.ExcelWriter(excel_data, engine='xlsxwriter') as writer:
+        for location in charge_locations:              
+            temp = filter_data(df, location, 0, percentile_choice)
+            temp.rename({'p': f'percentile_{percentile_choice}'})
+            temp.to_excel(writer, index=True, sheet_name = location[:15]+"_normaal_laden")
+            temp1 = filter_data(df, location, 1, percentile_choice)
+            temp1.rename({'p': f'percentile_{percentile_choice}'})
+            temp1.to_excel(writer, index=True, sheet_name = location[:15]+"_slim_laden")
+    # Set the BytesIO object's position to the start
+    excel_data.seek(0)
+          
+    st.download_button('Download data', excel_data, file_name='data_demand_plot.xlsx')
 
-        # Set the BytesIO object's position to the start
-        excel_data.seek(0)
-    
-        # Create a BytesIO object
-        excel_data2 = BytesIO()
-    
-        # Save the DataFrame to BytesIO as an Excel file
-        with pd.ExcelWriter(excel_data2, engine='xlsxwriter') as writer:
-            for location in charge_locations:
-                temp = (charge_quarter(df.loc[df.Positie == location], smart = 1, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days)
-                temp = df_hour_24h.merge(temp, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
-                temp.to_excel(writer, index=True, sheet_name = location[:31])
-
-        # Set the BytesIO object's position to the start
-        excel_data2.seek(0)
-	
-	    # Set up a style to display buttons side by side
-        button_style = """
-            <style>
-                .side-by-side {
-                    display: flex;
-                    justify-content: space-between;
-                }
-            </style>
-        """
-        st.write(button_style, unsafe_allow_html=True)
-    	
-        col1, col2 = st.columns(2)
-        with col1:
-            st.download_button('Download de data voor regulier laden', excel_data, file_name='data_demand_plot.xlsx')
-        with col2:
-            st.download_button('Download de data voor smart charging', excel_data2, file_name='data_demand_plot_smart.xlsx')
 
 
 def download_excel(df):
@@ -766,19 +765,19 @@ def table_kosten(df, energiebelasting = 0.00321, laadprijs_snelweg = 0.74):
     # Let op: energiebelasting is afhankelijk van jaarverbruik: https://www.belastingdienst.nl/wps/wcm/connect/bldcontentnl/belastingdienst/zakelijk/overige_belastingen/belastingen_op_milieugrondslag/energiebelasting/
     laadkosten_epex = sum(df['Laadkosten (EUR)'])
     laadkosten_snelweg = sum(df['Laadkosten_snel (EUR)'])
-    energiebelasting_totaal = sum(df['bijladen'])*energiebelasting + sum(df['bijladen_snel'])*energiebelasting
+    #energiebelasting_totaal = sum(df['bijladen'])*energiebelasting + sum(df['bijladen_snel'])*energiebelasting
     
-    #bijladen = sum(df['bijladen'])
-    #bijladen_snelweg = sum(df['bijladen_snel'])
+    bijladen = sum(df['bijladen'])
+    bijladen_snelweg = sum(df['bijladen_snel'])
     
-    tabel = {
-        'Categorie': ['Laadkosten EPEX', 'Laadkosten snelweg', 'Energiebelasting'],
-       # 'Gevraagde energie (kWh)' : [f"{format_nl_smart(bijladen_totaal)}",f"{format_nl_smart(bijladen_snelweg)}",f"{format_nl_smart(bijladen_snelweg+bijladen_totaal)}"],
-        'Kosten': [f"€{format_nl_smart(laadkosten_epex,0)}", f"€{format_nl_smart(laadkosten_snelweg,0)}", f"€{format_nl_smart(energiebelasting_totaal,0)}"],
-        'Aanname': ['Op basis van variabele day-aheadprijzen op het moment van laden',f'Vaste prijs voor laden snelweg van €{format_nl_smart(laadprijs_snelweg)}/kWh', f'Uitgaande van het tarief van €{format_nl_smart(energiebelasting,5)}/kWh']
-}            
+    tabel = pd.DataFrame({
+        'Categorie': ['Laadkosten EPEX', 'Laadkosten snelweg'], #'Energiebelasting'
+        'Gevraagde energie (kWh)' : [f"{format_nl_smart(bijladen,0)}",f"{format_nl_smart(bijladen_snelweg,0)}"],
+        'Kosten': [f"€{format_nl_smart(laadkosten_epex,0)}", f"€{format_nl_smart(laadkosten_snelweg,0)}"], #f"€{format_nl_smart(energiebelasting_totaal,0)
+        'Aanname': ['Op basis van variabele day-aheadprijzen',f'Vaste prijs voor laden snelweg van €{format_nl_smart(laadprijs_snelweg)}/kWh'] #, f'Uitgaande van het tarief van €{format_nl_smart(energiebelasting,5)}/kWh'
+}       )     
     
-    totale_kosten = laadkosten_epex + laadkosten_snelweg + energiebelasting_totaal
+    totale_kosten = laadkosten_epex + laadkosten_snelweg # + energiebelasting_totaal
     totale_kms = sum(df['Afstand'])
     kosten_per_km = totale_kosten/totale_kms
     
@@ -910,11 +909,13 @@ def main():
             plot_demand(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, laadvermogen_snel = laadvermogen_snel, type_voertuigen = type_voertuigen)
             print('Eind plot demand')
 
-            st.subheader('Totale kosten elektrisch vervoer: €' + f"{format_nl_smart(table_kosten(df)[1],0)}")
+            st.subheader('Laadkosten elektrisch vervoer: €' + f"{format_nl_smart(table_kosten(df)[1],0)}")
 
-            st.table(table_kosten(df, laadprijs_snelweg = laadprijs_snelweg)[0], )
-            st.write(f'De totale kosten (laadkosten + energiebelasting) voor het uitvoeren van {format_nl_smart(table_kosten(df)[2],0)} kilometers zijn €{format_nl_smart(table_kosten(df)[1],0)}. Dat is €{format_nl_smart(table_kosten(df)[3],3)} per km')
-                        
+            st.dataframe(table_kosten(df, laadprijs_snelweg = laadprijs_snelweg)[0], hide_index=True)
+            st.write(f'De laadkosten voor het uitvoeren van {format_nl_smart(table_kosten(df)[2],0)} kilometers zijn €{format_nl_smart(table_kosten(df)[1],0)}. Dat is €{format_nl_smart(table_kosten(df)[3],3)} per km.')
+            st.write('Let op: dit betreft uitsluitend de laadkosten, voor een complete vergelijking tussen elektrisch vervoer en dieselvrachtwagens, raden wij aan gebruik te maken van een tool die de Total Cost of Ownership (TCO) berekent.')
+            st.markdown("[TCO-tool Topsector Logistiek](https://topsectorlogistiek.nl/tco-vracht/)")
+            
             st.subheader('De eerste 15 regels van het outputbestand')
             st.dataframe(df.head(15).style.format({
                 'Type voertuig': format_nl_smart,
