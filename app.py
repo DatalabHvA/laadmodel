@@ -774,14 +774,34 @@ def table_kosten(df, energiebelasting = 0.00321, laadprijs_snelweg = 0.74):
         'Categorie': ['Laadkosten EPEX', 'Laadkosten snelweg'], #'Energiebelasting'
         'Gevraagde energie (kWh)' : [f"{format_nl_smart(bijladen,0)}",f"{format_nl_smart(bijladen_snelweg,0)}"],
         'Kosten': [f"€{format_nl_smart(laadkosten_epex,0)}", f"€{format_nl_smart(laadkosten_snelweg,0)}"], #f"€{format_nl_smart(energiebelasting_totaal,0)
-        'Aanname': ['Op basis van variabele day-aheadprijzen',f'Vaste prijs voor laden snelweg van €{format_nl_smart(laadprijs_snelweg)}/kWh'] #, f'Uitgaande van het tarief van €{format_nl_smart(energiebelasting,5)}/kWh'
-}       )     
+        'Aanname': ['Op basis van variabele day-aheadprijzen', f'Vaste prijs voor laden snelweg van €{format_nl_smart(laadprijs_snelweg)}/kWh'] #, f'Uitgaande van het tarief van €{format_nl_smart(energiebelasting,5)}/kWh'
+        })
+    
+    diesel_path = 'Dagelijkse-dieselprijs.xlsx'
+    prices_diesel = pd.read_excel(diesel_path, engine='openpyxl')
+    prices_diesel['Datum'] = pd.to_datetime(prices_diesel["Datum"])
+    df['Datum'] = pd.to_datetime(df['Datum'])
+    price_diesel_avg = prices_diesel["Dieselprijs"].tail(70).mean().item()
+    
+    print(df['Datum'].dtype)
+    print(prices_diesel['Datum'].dtype)
+    
+    df = pd.merge(df, prices_diesel, on = 'Datum', how = 'left')
+    
+    # Vul alle lege waarden met de gemiddelde waarde van dat jaar
+    mask = df["Dieselprijs"].isna()
+    df.loc[mask, "Dieselprijs"] = price_diesel_avg
+    
+    df['kosten_diesel']  = df['Dieselprijs']*df['Afstand']*25/100 # Aanname is een verbruik van 25L/100 km
+    
+    kosten_diesel = sum(df['kosten_diesel']) 
     
     totale_kosten = laadkosten_epex + laadkosten_snelweg # + energiebelasting_totaal
     totale_kms = sum(df['Afstand'])
     kosten_per_km = totale_kosten/totale_kms
-    
-    return tabel, totale_kosten, totale_kms, kosten_per_km
+    kosten_diesel_per_km = kosten_diesel/totale_kms
+
+    return tabel, totale_kosten, totale_kms, kosten_per_km, kosten_diesel, kosten_diesel_per_km
 
 def format_nl_smart(x, decimals = 2):
     import locale
@@ -913,7 +933,8 @@ def main():
 
             st.dataframe(table_kosten(df, laadprijs_snelweg = laadprijs_snelweg)[0], hide_index=True)
             st.write(f'De laadkosten voor het uitvoeren van {format_nl_smart(table_kosten(df)[2],0)} kilometers zijn €{format_nl_smart(table_kosten(df)[1],0)}. Dat is €{format_nl_smart(table_kosten(df)[3],3)} per km.')
-            st.write('Let op: dit betreft uitsluitend de laadkosten, voor een complete vergelijking tussen elektrisch vervoer en dieselvrachtwagens, raden wij aan gebruik te maken van een tool die de Total Cost of Ownership (TCO) berekent.')
+            st.write(f'De dieselkosten voor het uitvoeren van deze ritten zijn €{format_nl_smart(table_kosten(df)[4],0)}. Dat is €{format_nl_smart(table_kosten(df)[5],3)} per km.')
+            st.write('Let op: dit betreft uitsluitend de kale brandstofkosten, voor een complete vergelijking tussen elektrisch vervoer en dieselvrachtwagens, raden wij aan gebruik te maken van een tool die de Total Cost of Ownership (TCO) berekent.')
             st.markdown("[TCO-tool Topsector Logistiek](https://topsectorlogistiek.nl/tco-vracht/)")
             
             st.subheader('De eerste 15 regels van het outputbestand')
