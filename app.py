@@ -197,7 +197,7 @@ def aggregate_hourly_costs(df):
     laadkosten = df.groupby('Activiteit_id').apply(lambda g: np.dot(g['price_eur_mwh'], g['bijladen'])/1000).rename('Laadkosten (EUR)')
     gemiddelde_prijs = df.groupby('Activiteit_id').apply(lambda g: np.dot(g['price_eur_mwh'], g['bijladen'])/(1000*g['bijladen'].sum())).rename('Gemiddelde laadprijs (EUR/kWh)')
 
-    df_g = df.groupby('Activiteit_id').agg(agg_dict)#.reset_index(drop = False)#.drop('Activiteit_id', axis = 1)
+    df_g = df.groupby('Activiteit_id').agg(agg_dict)
     df = df_g.join([laadkosten, gemiddelde_prijs])
 
     df['Laadkosten (EUR)'] = df['Laadkosten (EUR)'].fillna(0)
@@ -237,7 +237,7 @@ def bijladen_einde_rit(df, prices, laadvermogen = [44], battery = [540], aanslui
         lastrow['Einddatum en -tijd'] = lastrow['Begindatum en -tijd'] + timedelta(seconds = lastrow['Duur'])
         # 0.001 seconds worden toegevoegd om ervoor te zorgen dat het eindtijdstip niet exact overeenkomt met het tijdstip in de prijzendataset
         lastrow['price_eur_mwh'] = prices.loc[(prices['datetime_CET'] < lastrow['Begindatum en -tijd'] + timedelta(seconds=0.001)) & (prices['datetime_CET_end'] > lastrow['Begindatum en -tijd'] + timedelta(seconds=0.001)), 'price_eur_mwh'].iloc[0]
-        # TO DO: laadkosten laatste regel worden nu berekend op uurprijs van de start van de activiteit
+        # TODO: laadkosten laatste regel worden nu berekend op uurprijs van de start van de activiteit
         lastrow['Laadkosten (EUR)'] = lastrow['bijladen']*lastrow['price_eur_mwh']/1000
         lastrow['Laadkosten_snel (EUR)'] = 0
         lastrow['Gemiddelde laadprijs (EUR/kWh)'] = lastrow['price_eur_mwh']/1000
@@ -380,7 +380,7 @@ def bijladen_spread_smart(bijladen, n_hours):
 	
 @st.cache_data
 #TODO: aansluittijd meenemen in berekening (zie charge_quarter)
-def charge_hour(df, laadvermogen = [44], laadvermogen_snel = 150, aansluittijd = [600], battery = [540], smart = 0):
+def charge_quarter(df, laadvermogen = [44], laadvermogen_snel = 150, aansluittijd = [600], battery = [540], smart = 0):
     df_bijladen = df.loc[df.bijladen > 0].copy()
 
     df_bijladen['StartTimeRound'] = df_bijladen['Begindatum en -tijd'].dt.floor('15min')
@@ -410,8 +410,8 @@ def charge_hour(df, laadvermogen = [44], laadvermogen_snel = 150, aansluittijd =
     df_hour['Time'] = df_hour['StartTime'].dt.time
     return df_hour
 
-#TODO: aanpassingen van deze functie in charge_hour opnemen
-def charge_quarter(df, laadvermogen = [44], aansluittijd = [600], battery = [540], smart = 0):
+#TODO: aanpassingen van deze functie in charge_quarter opnemen
+def charge_quarter2(df, laadvermogen = [44], aansluittijd = [600], battery = [540], smart = 0):
     df_bijladen = df.loc[df.bijladen > 0].copy()
     
     df_bijladen['StartTimeRound'] = df_bijladen['Begindatum en -tijd'].dt.floor('15min')
@@ -652,7 +652,7 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
         #df_plot = df.copy()
         df_plot['Date'] = df_plot['Begindatum en -tijd'].dt.date
         
-        plot_data1 = (charge_hour(df_plot, smart = smart, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby(['Date', 'Time']).bijladen.sum()).reset_index()
+        plot_data1 = (charge_quarter(df_plot, smart = smart, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby(['Date', 'Time']).bijladen.sum()).reset_index()
         #uniques = [range(1,24), pd.date_range(plot_data1.Date.min(),plot_data1.Date.max(), freq = '1d')]
         uniques = [pd.date_range(start='00:00', end='23:45', freq='15min').time, pd.date_range(df_plot.Date.min(),df_plot.Date.max(), freq = '1d')]
 
@@ -693,7 +693,8 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
     # Save the DataFrame to BytesIO as an Excel file
         with pd.ExcelWriter(excel_data, engine='xlsxwriter') as writer:
             for location in charge_locations:
-                temp = (charge_hour(df.loc[df.Positie == location], smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('Time').bijladen.sum()/n_days)
+                #TODO: deze functie werkend krijgen
+                temp = (charge_quarter(df.loc[df.Positie == location], smart = 0, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('Time').bijladen.sum()/n_days)
                 temp = df_hour_24h.merge(temp, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
                 temp.to_excel(writer, index=True, sheet_name = location[:31])
 
@@ -706,7 +707,7 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
         # Save the DataFrame to BytesIO as an Excel file
         with pd.ExcelWriter(excel_data2, engine='xlsxwriter') as writer:
             for location in charge_locations:
-                temp = (charge_hour(df.loc[df.Positie == location], smart = 1, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days)
+                temp = (charge_quarter(df.loc[df.Positie == location], smart = 1, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby('hour').bijladen.sum()/n_days)
                 temp = df_hour_24h.merge(temp, how = 'left', left_on = 'hour', right_index = True).fillna(0).set_index('hour')
                 temp.to_excel(writer, index=True, sheet_name = location[:31])
 
