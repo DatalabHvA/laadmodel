@@ -227,6 +227,8 @@ def bijladen_einde_rit(df, prices, laadvermogen = [44], battery = [540], aanslui
 
     if eindstand < battery:
         # Modify fields in the duplicated row as needed:
+        gemiddelde_prijs = sum(df['Laadkosten (EUR)'])/sum(df['bijladen'])*1000
+            
         lastrow['Begindatum en -tijd'] = lastrow['Einddatum en -tijd']
         lastrow['Afstand'] = 0
         lastrow['Positie'] = 'Einde rit'
@@ -240,7 +242,7 @@ def bijladen_einde_rit(df, prices, laadvermogen = [44], battery = [540], aanslui
         lastrow['Duur'] = aansluittijd + lastrow['bijladen']/laadvermogen*3600
         lastrow['Einddatum en -tijd'] = lastrow['Begindatum en -tijd'] + timedelta(seconds = lastrow['Duur'])
         # 0.001 seconds worden toegevoegd om ervoor te zorgen dat het eindtijdstip niet exact overeenkomt met het tijdstip in de prijzendataset
-        lastrow['price_eur_mwh'] = prices.loc[(prices['datetime_CET'] < lastrow['Begindatum en -tijd'] + timedelta(seconds=0.001)) & (prices['datetime_CET_end'] > lastrow['Begindatum en -tijd'] + timedelta(seconds=0.001)), 'price_eur_mwh'].iloc[0]
+        lastrow['price_eur_mwh'] = gemiddelde_prijs
         # TODO: laadkosten laatste regel worden nu berekend op uurprijs van de start van de activiteit
         lastrow['Laadkosten (EUR)'] = lastrow['bijladen']*lastrow['price_eur_mwh']/1000
         lastrow['Laadkosten_snel (EUR)'] = 0
