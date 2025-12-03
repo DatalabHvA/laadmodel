@@ -227,8 +227,10 @@ def bijladen_einde_rit(df, prices, laadvermogen = [44], battery = [540], aanslui
 
     if eindstand < battery:
         # Modify fields in the duplicated row as needed:
-        gemiddelde_prijs = sum(df['Laadkosten (EUR)'])/sum(df['bijladen'])*1000
-            
+        try:
+            gemiddelde_prijs = sum(df['Laadkosten (EUR)'])/sum(df['bijladen'])*1000
+        except:
+            gemiddelde_prijs = 0
         lastrow['Begindatum en -tijd'] = lastrow['Einddatum en -tijd']
         lastrow['Afstand'] = 0
         lastrow['Positie'] = 'Einde rit'
