@@ -6,11 +6,12 @@ import seaborn as sns
 import requests
 from io import BytesIO
 from datetime import timedelta
+from datetime import datetime
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-
 from itertools import product
+import base64
 
 @st.cache_data
 # TODO: Functie mogelijk overbodig. Verwijderen in dat geval
@@ -569,10 +570,12 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
                     print(f'Prices found for {i}')
                     
                     # Voeg prijsdata samen met bestaande prijsdata
-                    prices = pd.concat([prices,a])
+                    prices = pd.concat([prices,a]).sort_values(by = 'datetime_CET')
                 # Wanneer API fout geeft, throw exception
                 except:
                     print(f'No day ahead prices available for {i}')
+        github_token = st.secrets["api_keys"]["gh_token"]
+        upload_price_data(github_token, prices)
     else:
         # Werk met een vaste elektriciteitsprijs, gegeven door het bedrijf of een standaardwaarde
         print('fixed_prices')
@@ -581,6 +584,8 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     prices = prices[['datetime_CET', 'price_eur_mwh']].sort_values(by = 'datetime_CET')
     prices['datetime_CET_end'] = prices['datetime_CET'].shift(-1)
     prices['Datum'] = prices['datetime_CET'].dt.date
+    # Forward fill prijzen die leeg zijn
+    prices['price_eur_mwh'] = prices['price_eur_mwh'].ffill()
     
     # Prijzen mergen aan het dataframe
     df = add_day_ahead_prices(df, prices, aansluittijd)
@@ -815,7 +820,47 @@ def format_nl_smart(x, decimals = 2):
         # Niet-geheel → 2 decimalen
         return locale.format_string(f"%.{decimals}f", x, grouping=True)
 
+def upload_price_data(API_TOKEN, df):
+    
+    OWNER = "DatalabHvA"
+    REPO = "laadmodel"
+    FILE_PATH = "day_ahead_prices.xlsx"
+    
+    buffer = BytesIO()
+    df.to_excel(buffer, index=False, engine='openpyxl')
+    xlsx_bytes = buffer.getvalue()
+    content_b64 = base64.b64encode(xlsx_bytes).decode("utf-8")
+
+
+    headers = {
+            "Authorization": f"Bearer {API_TOKEN}",
+            "Accept": "application/vnd.github+json",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache"
+            }
+
+    url = f"https://api.github.com/repos/{OWNER}/{REPO}/contents/{FILE_PATH}"
+
+    r = requests.get(url, headers=headers)
+    if r.status_code == 200:
+        sha = r.json()["sha"]
+    else:
+        sha = None  # nieuw bestand
+    
+    payload = {
+        "message": "Update XLSX via API " + datetime.now().strftime("%d-%m-%Y, %H:%M:%S"),
+        "content": content_b64,
+    }
+    
+    if sha:
+        payload["sha"] = sha
+    
+    response = requests.put(url, headers=headers, json=payload)
+    print(response.status_code)
+    return response.status_code
+
 def main():
+    
     
     st.title('Laadmodel ZEC')
     st.write("De resultaten van deze tool zijn informatief.  \nDe verstrekte informatie kan onvolledig of niet geheel juist zijn.  \nAan de resultaten van deze tool kunnen geen rechten worden ontleend.")
