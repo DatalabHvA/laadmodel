@@ -373,82 +373,43 @@ def simulate(df2, zuinig = [1.26], laadvermogen = [44], aansluittijd = [600], ba
 							 'index' : df2['index']}, index = df2.index)
 
     return return_df
-
-def bijladen_spread(bijladen, laadvermogen, n_hours, type_voertuig = 1): 
-    laadvermogen = laadvermogen[type_voertuig-1]/4
-    laadvermogen = max(laadvermogen, np.ceil(bijladen/n_hours)+1)
-    a = ([laadvermogen]*int(bijladen/laadvermogen)) + [bijladen % laadvermogen]
-    a += [0] * (n_hours - len(a))
-    return a
-	
-def bijladen_spread_smart(bijladen, n_hours): 
-    a = [bijladen/n_hours]*n_hours
-    return a
 	
 @st.cache_data
-#TODO: aansluittijd meenemen in berekening (zie charge_quarter)
-def charge_quarter(df, laadvermogen = [44], laadvermogen_snel = 150, aansluittijd = [600], battery = [540], smart = 0):
-        
-    df_bijladen = df.loc[df.bijladen > 0].copy()
-
-    df_bijladen['StartTimeRound'] = df_bijladen['Begindatum en -tijd'].dt.floor('15min')
-    df_bijladen['EndTimeRound'] = df_bijladen['Einddatum en -tijd'].dt.floor('15min')
-    df_bijladen['StartTime'] = df_bijladen.apply(lambda row: list(pd.date_range(start = row['StartTimeRound'], 
-                                                        end = row['EndTimeRound'], 
-                                                        freq = '15min')), axis = 1)
-    
-    df_hour = df_bijladen.explode(column = 'StartTime').reset_index()[['index','Voertuig','Type voertuig', 'StartTime', 'Begindatum en -tijd', 'Einddatum en -tijd', 'bijladen','thuis']]
-
-    if smart == 0:
-        # TODO: write in clean way
-        df_hour_1 = df_hour[df_hour['Type voertuig']==1]
-        df_hour_2 = df_hour[df_hour['Type voertuig']==2]
-        df_hour_3 = df_hour[df_hour['Type voertuig']==3]
-
-        df_hour_1['bijladen'] = df_hour_1.groupby('index').bijladen.transform(lambda row: bijladen_spread(row.max(),laadvermogen,len(row), type_voertuig = 1))
-        df_hour_2['bijladen'] = df_hour_2.groupby('index').bijladen.transform(lambda row: bijladen_spread(row.max(),laadvermogen,len(row), type_voertuig = 2))
-        df_hour_3['bijladen'] = df_hour_3.groupby('index').bijladen.transform(lambda row: bijladen_spread(row.max(),laadvermogen,len(row), type_voertuig = 3))
-
-        df_hour = pd.concat([df_hour_1, df_hour_2, df_hour_3])
-    elif smart == 1:
-        df_hour['bijladen'] = df_hour.groupby('index').bijladen.transform(lambda row: bijladen_spread_smart(row.max(),len(row)))
-
-    df_hour['hour'] = df_hour['StartTime'].dt.hour
-    df_hour['Date'] = df_hour['StartTime'].dt.date
-    df_hour['Time'] = df_hour['StartTime'].dt.time
-    return df_hour
-
-#TODO: aanpassingen van deze functie in charge_quarter opnemen
-def charge_quarter2(df, laadvermogen = [44], aansluittijd = [600], battery = [540], smart = 0):
+def charge_quarter(df, laadvermogen = [44], aansluittijd = [600], battery = [540], smart = 0):
     df_bijladen = df.loc[df.bijladen > 0].copy()
     
+    # Corrigeer de begindatum en -tijd voor aansluittijd
+    df_bijladen['Aansluittijd_totaal'] = df_bijladen.apply(lambda g: pd.to_timedelta(aansluittijd[g['Type voertuig']-1], unit = 's'), axis=1)
+    df_bijladen['Begindatum en -tijd'] = df_bijladen['Begindatum en -tijd'] + df_bijladen['Aansluittijd_totaal']
+    
+    # Haal het laadvermogen van het bijbehorende type voertuig op
+    df_bijladen['Laadvermogen'] = df_bijladen.apply(lambda g: laadvermogen[g['Type voertuig']-1], axis=1)
+
+    # Splits de activiteit op in blokken van 15 min.
     df_bijladen['StartTimeRound'] = df_bijladen['Begindatum en -tijd'].dt.floor('15min')
     df_bijladen['EndTimeRound'] = df_bijladen['Einddatum en -tijd'].dt.floor('15min')
     df_bijladen['Quarter'] = df_bijladen.apply(lambda row: list(pd.date_range(start = row['StartTimeRound'], 
                                                         end = row['EndTimeRound'], 
                                                         freq = '15min')), axis = 1)
     
-    df_bijladen = df_bijladen.explode(column = 'Quarter').reset_index()[['index','Voertuig','Type voertuig', 'Quarter', 'Begindatum en -tijd', 'Einddatum en -tijd', 'bijladen','thuis']]
-    
-    df_bijladen['Aansluittijd_totaal'] = aansluittijd[df_bijladen['Type_voertuig']]
-    df_bijladen['Laadvermogen'] = laadvermogen[df_bijladen['Type_voertuig']]
-    
+    df_bijladen = df_bijladen.explode(column = 'Quarter').reset_index()[['index','Voertuig','Type voertuig', 'Quarter', 'Begindatum en -tijd', 'Einddatum en -tijd', 'bijladen','thuis', 'Laadvermogen']]
 
+    # Bereken start- en eindtijd voor ieder blok (eerste en laatste blok worden gecorrigeerd voor start en eind activiteit)
     df_bijladen['StartTime'] = pd.to_datetime(df_bijladen['Quarter'])
     df_bijladen['EndTime'] = df_bijladen['StartTime'] + pd.Timedelta(minutes = 15)
     df_bijladen['StartTime'] = df_bijladen[['StartTime', 'Begindatum en -tijd']].max(axis=1)
     df_bijladen['EndTime'] = df_bijladen[['EndTime', 'Einddatum en -tijd']].min(axis=1)
     
-    # Bereken de aansluittijd voor dit specifieke kwartier op basis van de totale aansluittijd en het verschil tussen dit kwartier en de starttijd van de activiteit
-    df_bijladen['Aansluittijd'] = df_bijladen.apply(lambda g: min(g['Aansluittijd_totaal'], (g['EndTime'] - g['StartTime']).total_seconds(), max(g['Aansluittijd_totaal'] - (g['StartTime'] - g['Begindatum en -tijd']).total_seconds(), 0)), axis = 1)
-    
-    df_bijladen['TotalSeconds'] = np.maximum((df_bijladen['Einddatum en -tijd'] - df_bijladen['Begindatum en -tijd']).dt.total_seconds() - df_bijladen['Aansluittijd_totaal'],0)
-    df_bijladen['SecondsQuarter'] = (df_bijladen['EndTime'] - df_bijladen['StartTime'] ).dt.total_seconds() - df_bijladen['Aansluittijd']
-    df_bijladen['SecondsBeforeQuarter'] = np.maximum((df_bijladen['StartTime'] - df_bijladen['Begindatum en -tijd']).dt.total_seconds(), df_bijladen['Aansluittijd_totaal']) - df_bijladen['Aansluittijd_totaal']
+    # Bereken hoeveel seconden er geladen kan worden
+    df_bijladen['TotalSeconds'] = (df_bijladen['Einddatum en -tijd'] - df_bijladen['Begindatum en -tijd']).dt.total_seconds()
+    df_bijladen['SecondsQuarter'] = (df_bijladen['EndTime'] - df_bijladen['StartTime']).dt.total_seconds()
+    df_bijladen['SecondsBeforeQuarter'] = (df_bijladen['StartTime'] - df_bijladen['Begindatum en -tijd']).dt.total_seconds()
     
     if smart == 0:
-        df_bijladen['bijladen'] = np.maximum(0,np.minimum(laadvermogen[df_bijladen['Type voertuig']]*df_bijladen['SecondsQuarter']/3600, df_bijladen['bijladen'] - laadvermogen[df_bijladen['Type voertuig']]*df_bijladen['SecondsBeforeQuarter']/3600))
+        # Laad op maximaal vermogen totdat de hoeveelheid kWh bijladen is bereikt
+        df_bijladen['bijladen'] = np.maximum(0,np.minimum(df_bijladen['Laadvermogen']*df_bijladen['SecondsQuarter']/3600, df_bijladen['bijladen'] - df_bijladen['Laadvermogen']*df_bijladen['SecondsBeforeQuarter']/3600))
     elif smart == 1:
+        # Smeer de hoeveelheid kWh bijladen gelijkmatig uit over de activiteit
         df_bijladen['bijladen'] = df_bijladen['bijladen']*df_bijladen['SecondsQuarter']/df_bijladen['TotalSeconds']
     df_bijladen['Hour'] = df_bijladen['StartTime'].dt.hour
     df_bijladen['Date'] = df_bijladen['StartTime'].dt.date
