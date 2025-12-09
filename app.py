@@ -721,17 +721,12 @@ def download_excel(df):
     st.download_button('Download Excelbestand met modeluitkomsten', create_output_excel(df), file_name='laadmodel_resultaten.xlsx')
 
 def download_template():
-    # Template file URL
-    template_url = 'https://github.com/DatalabHvA/laadmodel/raw/main/template.xlsx'
-
-    # Request the template file
-    response = requests.get(template_url)
-
-    # Create a BytesIO object
-    template_data = BytesIO(response.content)
-
-    # Offer the file download
-    st.download_button('Download Template', template_data, file_name='template.xlsx')
+    
+ 
+    with open('template.xlsx', "rb") as f:
+        bytes_data = f.read()
+ 
+    st.download_button('Download Template', bytes_data, file_name='template.xlsx')
 
 def table_kosten(df, energiebelasting = 0.00321, laadprijs_snelweg = 0.74):
     
