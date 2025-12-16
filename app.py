@@ -21,8 +21,7 @@ def tekort_snel(df2, battery = 540, zuinig = 1.26):
     df2 = df2.sort_values('Begindatum en -tijd', ascending = False)
     tekort2 = []
     tekort1 = []
-    print('df2')
-    #print(df2)
+
     for i, row in df2.reset_index().iterrows():
         tekort = min(
                         min(df2.iloc[i].laad_potentiaal1,
@@ -30,20 +29,18 @@ def tekort_snel(df2, battery = 540, zuinig = 1.26):
                          ), 
                         max(0, verbruik_rit - sum(tekort1) - sum(tekort2))
                      )
-        #print(tekort)
+
         tekort1.append(tekort)
         
         tekort_snel = max(0,df2.iloc[0:i+1].Afstand.sum()*zuinig - sum(tekort1) - sum(tekort2))
         tekort2.append(tekort_snel)
     return_df = pd.DataFrame({'bijladen_snel' : tekort2, 'bijladen' : tekort1}, index = df2.index)
-    #print(return_df)
     return return_df
 
 @st.cache_data
 # Hulpfunctie voor het vinden van alle datums bij laadactiviteiten
 def create_date_range(row):
     result = pd.date_range(start=row['Begindatum'], end=row['Einddatum'], freq='D')
-    
     return result
 
 @st.cache_data
@@ -51,12 +48,14 @@ def create_date_range(row):
 def unique_dates(df):
     df1 = df.copy()
     df1 = df1[df1['Laden']==1]
-    
-    df1['Begindatum'] = df1['Begindatum en -tijd'].dt.date
-    df1['Einddatum'] = df1['Einddatum en -tijd'].dt.date
-    df1['daterange'] = df1.apply(create_date_range, axis=1)
-    df1 = df1.explode('daterange')
-    datums_uniek = df1['daterange'].drop_duplicates()
+    if df1.empty:
+        datums_uniek = pd.Series(min(df['Begindatum en -tijd'].dt.date))
+    else:
+        df1['Begindatum'] = df1['Begindatum en -tijd'].dt.date
+        df1['Einddatum'] = df1['Einddatum en -tijd'].dt.date
+        df1['daterange'] = df1.apply(create_date_range, axis=1)
+        df1 = df1.explode('daterange')
+        datums_uniek = df1['daterange'].drop_duplicates()
     return datums_uniek
 
 @st.cache_data
@@ -79,14 +78,19 @@ def add_day_ahead_prices(df, prices, aansluittijd = [600]):
     #aansluittijd = aansluittijd[type_voertuig]
         
     df_laden = df[df['Laden']==1]
-    df_laden = pd.concat((match_prices(row, prices) for _, row in df_laden.iterrows()), ignore_index=True)
-    df_laden['Aansluittijd'] = df_laden.apply(lambda g: min(aansluittijd[g['Type voertuig']-1], (g['datetime_CET_end'] - g['Begindatum en -tijd']).total_seconds(), max(aansluittijd[g['Type voertuig']-1] - (g['datetime_CET'] - g['Begindatum en -tijd']).total_seconds(), 0)), axis = 1)
-    df_laden['Begindatum en -tijd'] = df_laden[['Begindatum en -tijd', 'datetime_CET']].max(axis = 1)
-    df_laden['Einddatum en -tijd'] = df_laden[['Einddatum en -tijd', 'datetime_CET_end']].min(axis = 1)
-    df_laden = df_laden[['Voertuig', 'Type voertuig', 'Activiteit_id', 'Begindatum en -tijd', 'Einddatum en -tijd', 'Positie', 'Afstand', 'Activiteit', 'Datum', 'nacht', 'Laden', 'Aansluittijd', 'price_eur_mwh']]
-    df_niet_laden = df[df['Laden']!=1]
-    df_niet_laden['Aansluittijd'] = np.nan
-    result =  pd.concat([df_niet_laden, df_laden])
+    if df_laden.empty:
+        df['Aansluittijd'] = np.nan
+        df['price_eur_mwh'] = np.nan
+        result = df
+    else:
+        df_laden = pd.concat((match_prices(row, prices) for _, row in df_laden.iterrows()), ignore_index=True)
+        df_laden['Aansluittijd'] = df_laden.apply(lambda g: min(aansluittijd[g['Type voertuig']-1], (g['datetime_CET_end'] - g['Begindatum en -tijd']).total_seconds(), max(aansluittijd[g['Type voertuig']-1] - (g['datetime_CET'] - g['Begindatum en -tijd']).total_seconds(), 0)), axis = 1)
+        df_laden['Begindatum en -tijd'] = df_laden[['Begindatum en -tijd', 'datetime_CET']].max(axis = 1)
+        df_laden['Einddatum en -tijd'] = df_laden[['Einddatum en -tijd', 'datetime_CET_end']].min(axis = 1)
+        df_laden = df_laden[['Voertuig', 'Type voertuig', 'Activiteit_id', 'Begindatum en -tijd', 'Einddatum en -tijd', 'Positie', 'Afstand', 'Activiteit', 'Datum', 'nacht', 'Laden', 'Aansluittijd', 'price_eur_mwh']]
+        df_niet_laden = df[df['Laden']!=1]
+        df_niet_laden['Aansluittijd'] = np.nan
+        result =  pd.concat([df_niet_laden, df_laden])
         
     return result
         
@@ -212,7 +216,6 @@ def aggregate_hourly_costs(df):
 @st.cache_data
 # Functie voor het toevoegen van een extra regel als aan het einde van de rit de accu nog niet terug is volgeladen
 def bijladen_einde_rit(df, prices, laadvermogen = [44], battery = [540], aansluittijd = [600], type_voertuigen = 1):
-    
     type_voertuig = int(np.minimum(df['Type voertuig'].min(), type_voertuigen)) - 1
     
     battery = battery[type_voertuig]
@@ -227,10 +230,6 @@ def bijladen_einde_rit(df, prices, laadvermogen = [44], battery = [540], aanslui
 
     if eindstand < battery:
         # Modify fields in the duplicated row as needed:
-        try:
-            gemiddelde_prijs = sum(df['Laadkosten (EUR)'])/sum(df['bijladen'])*1000
-        except:
-            gemiddelde_prijs = 0
         lastrow['Begindatum en -tijd'] = lastrow['Einddatum en -tijd']
         lastrow['Afstand'] = 0
         lastrow['Positie'] = 'Einde rit'
@@ -243,7 +242,13 @@ def bijladen_einde_rit(df, prices, laadvermogen = [44], battery = [540], aanslui
         lastrow['bijladen'] = (battery - eindstand)
         lastrow['Duur'] = aansluittijd + lastrow['bijladen']/laadvermogen*3600
         lastrow['Einddatum en -tijd'] = lastrow['Begindatum en -tijd'] + timedelta(seconds = lastrow['Duur'])
-        # 0.001 seconds worden toegevoegd om ervoor te zorgen dat het eindtijdstip niet exact overeenkomt met het tijdstip in de prijzendataset
+           
+        try:
+            gemiddelde_prijs = sum(df['Laadkosten (EUR)'])/sum(df['bijladen'])*1000
+        except:
+            prices_filter = prices.loc[prices['datetime_CET_end'] > lastrow['Begindatum en -tijd']]
+            prices_filter = prices_filter.loc[prices_filter['datetime_CET'] < lastrow['Einddatum en -tijd']]
+            gemiddelde_prijs = np.mean(prices_filter['price_eur_mwh'])
         lastrow['price_eur_mwh'] = gemiddelde_prijs
         # TODO: laadkosten laatste regel worden nu berekend op uurprijs van de start van de activiteit
         lastrow['Laadkosten (EUR)'] = lastrow['bijladen']*lastrow['price_eur_mwh']/1000
@@ -269,8 +274,6 @@ def simulate2(df2, zuinig = [1.26], laadvermogen = [44], aansluittijd = [600], b
     	df2['Laadtijd'] = np.where((df2['thuis'] == 1) | (df2['Laden'] == 1) | (df2['nacht'] == 1), df2['Duur'],0) # thuis, 's nachts of tijdens activiteit 		
 		
     type_voertuig = np.minimum(int(df2['Type voertuig'].min()-1), type_voertuigen - 1)
-     
-    #print(type_voertuig)
         
     battery = battery[type_voertuig]
     zuinig = zuinig[type_voertuig]
@@ -379,45 +382,49 @@ def simulate(df2, zuinig = [1.26], laadvermogen = [44], aansluittijd = [600], ba
 @st.cache_data
 def charge_quarter(df, laadvermogen = [44], aansluittijd = [600], battery = [540], smart = 0):
     df_bijladen = df.loc[df.bijladen > 0].copy()
+    show_figure = True
     
-    # Corrigeer de begindatum en -tijd voor aansluittijd
-    df_bijladen['Aansluittijd_totaal'] = df_bijladen.apply(lambda g: pd.to_timedelta(aansluittijd[g['Type voertuig']-1], unit = 's'), axis=1)
-    df_bijladen['Begindatum en -tijd'] = df_bijladen['Begindatum en -tijd'] + df_bijladen['Aansluittijd_totaal']
+    if df_bijladen.empty:
+        show_figure = False
+    else:
+        # Corrigeer de begindatum en -tijd voor aansluittijd
+        df_bijladen['Aansluittijd_totaal'] = df_bijladen.apply(lambda g: pd.to_timedelta(aansluittijd[g['Type voertuig']-1], unit = 's'), axis=1)
+        df_bijladen['Begindatum en -tijd'] = df_bijladen['Begindatum en -tijd'] + df_bijladen['Aansluittijd_totaal']
+        
+        # Haal het laadvermogen van het bijbehorende type voertuig op
+        df_bijladen['Laadvermogen'] = df_bijladen.apply(lambda g: laadvermogen[g['Type voertuig']-1], axis=1)
     
-    # Haal het laadvermogen van het bijbehorende type voertuig op
-    df_bijladen['Laadvermogen'] = df_bijladen.apply(lambda g: laadvermogen[g['Type voertuig']-1], axis=1)
+        # Splits de activiteit op in blokken van 15 min.
+        df_bijladen['StartTimeRound'] = df_bijladen['Begindatum en -tijd'].dt.floor('15min')
+        df_bijladen['EndTimeRound'] = df_bijladen['Einddatum en -tijd'].dt.floor('15min')
+        df_bijladen['Quarter'] = df_bijladen.apply(lambda row: list(pd.date_range(start = row['StartTimeRound'], 
+                                                            end = row['EndTimeRound'], 
+                                                            freq = '15min')), axis = 1)
+        
+        df_bijladen = df_bijladen.explode(column = 'Quarter').reset_index()[['index','Voertuig','Type voertuig', 'Quarter', 'Begindatum en -tijd', 'Einddatum en -tijd', 'bijladen','thuis', 'Laadvermogen']]
+    
+        # Bereken start- en eindtijd voor ieder blok (eerste en laatste blok worden gecorrigeerd voor start en eind activiteit)
+        df_bijladen['StartTime'] = pd.to_datetime(df_bijladen['Quarter'])
+        df_bijladen['EndTime'] = df_bijladen['StartTime'] + pd.Timedelta(minutes = 15)
+        df_bijladen['StartTime'] = df_bijladen[['StartTime', 'Begindatum en -tijd']].max(axis=1)
+        df_bijladen['EndTime'] = df_bijladen[['EndTime', 'Einddatum en -tijd']].min(axis=1)
+        
+        # Bereken hoeveel seconden er geladen kan worden
+        df_bijladen['TotalSeconds'] = (df_bijladen['Einddatum en -tijd'] - df_bijladen['Begindatum en -tijd']).dt.total_seconds()
+        df_bijladen['SecondsQuarter'] = (df_bijladen['EndTime'] - df_bijladen['StartTime']).dt.total_seconds()
+        df_bijladen['SecondsBeforeQuarter'] = (df_bijladen['StartTime'] - df_bijladen['Begindatum en -tijd']).dt.total_seconds()
+        
+        if smart == 0:
+            # Laad op maximaal vermogen totdat de hoeveelheid kWh bijladen is bereikt
+            df_bijladen['bijladen'] = np.maximum(0,np.minimum(df_bijladen['Laadvermogen']*df_bijladen['SecondsQuarter']/3600, df_bijladen['bijladen'] - df_bijladen['Laadvermogen']*df_bijladen['SecondsBeforeQuarter']/3600))
+        elif smart == 1:
+            # Smeer de hoeveelheid kWh bijladen gelijkmatig uit over de activiteit
+            df_bijladen['bijladen'] = df_bijladen['bijladen']*df_bijladen['SecondsQuarter']/df_bijladen['TotalSeconds']
+        df_bijladen['Hour'] = df_bijladen['StartTime'].dt.hour
+        df_bijladen['Date'] = df_bijladen['StartTime'].dt.date
+        df_bijladen['Time'] = df_bijladen['Quarter'].dt.time
 
-    # Splits de activiteit op in blokken van 15 min.
-    df_bijladen['StartTimeRound'] = df_bijladen['Begindatum en -tijd'].dt.floor('15min')
-    df_bijladen['EndTimeRound'] = df_bijladen['Einddatum en -tijd'].dt.floor('15min')
-    df_bijladen['Quarter'] = df_bijladen.apply(lambda row: list(pd.date_range(start = row['StartTimeRound'], 
-                                                        end = row['EndTimeRound'], 
-                                                        freq = '15min')), axis = 1)
-    
-    df_bijladen = df_bijladen.explode(column = 'Quarter').reset_index()[['index','Voertuig','Type voertuig', 'Quarter', 'Begindatum en -tijd', 'Einddatum en -tijd', 'bijladen','thuis', 'Laadvermogen']]
-
-    # Bereken start- en eindtijd voor ieder blok (eerste en laatste blok worden gecorrigeerd voor start en eind activiteit)
-    df_bijladen['StartTime'] = pd.to_datetime(df_bijladen['Quarter'])
-    df_bijladen['EndTime'] = df_bijladen['StartTime'] + pd.Timedelta(minutes = 15)
-    df_bijladen['StartTime'] = df_bijladen[['StartTime', 'Begindatum en -tijd']].max(axis=1)
-    df_bijladen['EndTime'] = df_bijladen[['EndTime', 'Einddatum en -tijd']].min(axis=1)
-    
-    # Bereken hoeveel seconden er geladen kan worden
-    df_bijladen['TotalSeconds'] = (df_bijladen['Einddatum en -tijd'] - df_bijladen['Begindatum en -tijd']).dt.total_seconds()
-    df_bijladen['SecondsQuarter'] = (df_bijladen['EndTime'] - df_bijladen['StartTime']).dt.total_seconds()
-    df_bijladen['SecondsBeforeQuarter'] = (df_bijladen['StartTime'] - df_bijladen['Begindatum en -tijd']).dt.total_seconds()
-    
-    if smart == 0:
-        # Laad op maximaal vermogen totdat de hoeveelheid kWh bijladen is bereikt
-        df_bijladen['bijladen'] = np.maximum(0,np.minimum(df_bijladen['Laadvermogen']*df_bijladen['SecondsQuarter']/3600, df_bijladen['bijladen'] - df_bijladen['Laadvermogen']*df_bijladen['SecondsBeforeQuarter']/3600))
-    elif smart == 1:
-        # Smeer de hoeveelheid kWh bijladen gelijkmatig uit over de activiteit
-        df_bijladen['bijladen'] = df_bijladen['bijladen']*df_bijladen['SecondsQuarter']/df_bijladen['TotalSeconds']
-    df_bijladen['Hour'] = df_bijladen['StartTime'].dt.hour
-    df_bijladen['Date'] = df_bijladen['StartTime'].dt.date
-    df_bijladen['Time'] = df_bijladen['Quarter'].dt.time
-    
-    return df_bijladen
+    return df_bijladen, show_figure
 
 def check_file(file):
 	
@@ -506,17 +513,11 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     df['Duur_nacht'] = (df['Einddatum en -tijd'] - df['Begindatum en -tijd']).apply(lambda x: x.total_seconds())
     df['nacht'] = np.where(((df.Afstand < 3) & (df.Duur_nacht > 6*3600)),1,0)
     
-    #for index, row in df.iterrows():
-     #   print(row['Duur_nacht'])
-     #   print(row['Afstand'])
-     #   print(row["nacht"])
-    
     # Prijzen inladen
     # Laad prijzen in vanuit Excelbestand in repository
     prices_path = 'day_ahead_prices.xlsx'
     prices = pd.read_excel(prices_path, engine='openpyxl')
-    
-    
+        
     # Haal prijzen op via ENTSO-E API wanneer geen prijzen beschikbaar zijn
     # TODO: variabele instelbaar maken via app. Vaste prijs of variabele prijs
     variable_price = True
@@ -544,7 +545,8 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     else:
         # Werk met een vaste elektriciteitsprijs, gegeven door het bedrijf of een standaardwaarde
         print('fixed_prices')
-        
+
+
     # Maak relevante kolommen aan voor prices tabel
     prices = prices[['datetime_CET', 'price_eur_mwh']].sort_values(by = 'datetime_CET')
     prices['datetime_CET_end'] = prices['datetime_CET'].shift(-1)
@@ -555,7 +557,6 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     # Prijzen mergen aan het dataframe
     df = add_day_ahead_prices(df, prices, aansluittijd)
     df['Duur'] = (df['Einddatum en -tijd'] - df['Begindatum en -tijd']).apply(lambda x: x.total_seconds())
-
     df_locatie = pd.read_excel(file, sheet_name = 'laadlocaties').assign(thuis = 1)
     df = df.merge(df_locatie, how = 'left', on = 'Positie')
 
@@ -572,12 +573,13 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     df = aggregate_hourly_costs(df)
     
     df['Laadkosten_snel (EUR)'] = df['bijladen_snel']*laadprijs_snelweg
-    
+
     #TODO: fix aansluittijd naar de aansluittijd die bij het type voertuig hoort
     df['vertraging'] = np.where(df['bijladen_snel'] > 0, aansluittijd[0] + (3600*df['bijladen_snel']/laadvermogen_snel),0)
-    #print('Start bijladen einde rit')
+
     # Voeg een extra regel toe voor ieder voertuig wanneer extra bijladen nodig is
     df = df.groupby('Voertuig').apply(lambda g: bijladen_einde_rit(g, prices, laadvermogen = laadvermogen, battery = battery, aansluittijd = aansluittijd), include_groups = False)
+    #df = df.reset_index(level=0, drop=True).reset_index()
     df = df.reset_index(level=1, drop=True).reset_index()
     df = df.drop('index', axis = 1)
     
@@ -628,80 +630,90 @@ def plot_demand(df, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_sn
             df_plot = df.loc[df.Positie == selected_option]
         
         
-        plot_data1 = (charge_quarter(df_plot, smart = smart, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen).groupby(['Date', 'Time']).bijladen.sum()).reset_index()
-        #uniques = [range(1,24), pd.date_range(plot_data1.Date.min(),plot_data1.Date.max(), freq = '1d')]
-        uniques = [pd.date_range(start='00:00', end='23:45', freq='15min').time, pd.date_range(date_min, date_max, freq = '1d')]
+        plot_data1, show_figure = charge_quarter(df_plot, smart = smart, battery = battery, aansluittijd = aansluittijd, laadvermogen = laadvermogen)
+        
+        if show_figure:
+            plot_data1 = (plot_data1.groupby(['Date', 'Time']).bijladen.sum()).reset_index()
+            uniques = [pd.date_range(start='00:00', end='23:45', freq='15min').time, pd.date_range(date_min, date_max, freq = '1d')]
 
-        df_hour_date = pd.DataFrame(product(*uniques), columns = ['Time', 'Date'])
-        df_hour_date['Date'] = df_hour_date['Date'].dt.date
+            df_hour_date = pd.DataFrame(product(*uniques), columns = ['Time', 'Date'])
+            df_hour_date['Date'] = df_hour_date['Date'].dt.date
 
-        plot_data1 = df_hour_date.merge(plot_data1, how = 'left', on = ['Date', 'Time']).fillna(0)
-		
-        plot_data1['Time_num'] = (
-            plot_data1['Time'].apply(lambda t: t.hour + t.minute/60 + t.second/3600)
-        )
-        plot_data1['vermogen'] = plot_data1['bijladen']*4
-        plot_data1 = plot_data1.groupby('Time')['vermogen'].agg(mean='mean', median='median', p=lambda x: x.quantile(perc/100)).reset_index()
-        return plot_data1
+            plot_data1 = df_hour_date.merge(plot_data1, how = 'left', on = ['Date', 'Time']).fillna(0)
+            
+            plot_data1['Time_num'] = (
+                plot_data1['Time'].apply(lambda t: t.hour + t.minute/60 + t.second/3600)
+            )
+            plot_data1['vermogen'] = plot_data1['bijladen']*4
+            plot_data1 = plot_data1.groupby('Time')['vermogen'].agg(mean='mean', median='median', p=lambda x: x.quantile(perc/100)).reset_index()
+        else:
+            plot_data1 = pd.DataFrame()
+        return plot_data1, show_figure
 		
     percentile_choice = st.radio('Percentiel waarde voor error bar',[75,85,95], index=2)
 
 	# Create a demand plot
     #fig, (ax1) = plt.subplots(1, 1, figsize=(12, 6))
     fig = go.Figure()
-    plot_data = filter_data(df, filter_option, 0, percentile_choice)
-    fig.add_trace(go.Scatter(x=plot_data['Time'], y=plot_data['mean'], mode = 'lines', name = 'Normaal laden: Gemiddelde', line_color = '#4248f5'))
-    fig.add_trace(go.Scatter(x=plot_data['Time'], y=plot_data['p'], mode = 'lines', fill = 'tozeroy', name = f'Normaal laden: {percentile_choice}%-percentiel', line_color = "rgba(141, 164, 247, 0)", fillcolor = "rgba(141, 164, 247, 0.2)"))
 
-    plot_data_smart = filter_data(df, filter_option, 1, percentile_choice)
-    fig.add_trace(go.Scatter(x=plot_data_smart['Time'], y=plot_data_smart['mean'], mode = 'lines', name = 'Slim laden: Gemiddelde', line_color = '#c41f30'))
-    fig.add_trace(go.Scatter(x=plot_data_smart['Time'], y=plot_data_smart['p'], mode = 'lines', fill = 'tozeroy', name = f'Slim laden: {percentile_choice}%-percentiel', line_color = "rgba(252, 149, 158, 0)", fillcolor = "rgba(252, 149, 158, 0.2)"))
+    plot_data, show_figure = filter_data(df, filter_option, 0, percentile_choice)
 
-    fig.update_layout(
-        title="Vermogensvraag per uur",
-        title_x = 0.5,
-        title_xanchor = 'center',
-        title_font = dict(size=24),
-        xaxis_title="Tijd (Uren)",
-        yaxis_title="Gevraagd vermogen (kW)",
-        xaxis = dict(
-            tickmode = 'linear',
-            tick0 = 0,
-            dtick = 12,
-            tickformat = "%H:%M"
-            ),
-        legend=dict(
-            orientation="h",    
-            yanchor="top",
-            y=-0.3, 
-            xanchor="center",
-            x=0.5,
-            traceorder="normal",
+    if show_figure:
+        fig.add_trace(go.Scatter(x=plot_data['Time'], y=plot_data['mean'], mode = 'lines', name = 'Normaal laden: Gemiddelde', line_color = '#4248f5'))
+        fig.add_trace(go.Scatter(x=plot_data['Time'], y=plot_data['p'], mode = 'lines', fill = 'tozeroy', name = f'Normaal laden: {percentile_choice}%-percentiel', line_color = "rgba(141, 164, 247, 0)", fillcolor = "rgba(141, 164, 247, 0.2)"))
+
+        plot_data_smart, _ = filter_data(df, filter_option, 1, percentile_choice)
+        fig.add_trace(go.Scatter(x=plot_data_smart['Time'], y=plot_data_smart['mean'], mode = 'lines', name = 'Slim laden: Gemiddelde', line_color = '#c41f30'))
+        fig.add_trace(go.Scatter(x=plot_data_smart['Time'], y=plot_data_smart['p'], mode = 'lines', fill = 'tozeroy', name = f'Slim laden: {percentile_choice}%-percentiel', line_color = "rgba(252, 149, 158, 0)", fillcolor = "rgba(252, 149, 158, 0.2)"))
+
+        fig.update_layout(
+            title="Vermogensvraag per uur",
+            title_x = 0.5,
+            title_xanchor = 'center',
+            title_font = dict(size=24),
+            xaxis_title="Tijd (Uren)",
+            yaxis_title="Gevraagd vermogen (kW)",
+            xaxis = dict(
+                tickmode = 'linear',
+                tick0 = 0,
+                dtick = 12,
+                tickformat = "%H:%M"
+                ),
+            legend=dict(
+                orientation="h",    
+                yanchor="top",
+                y=-0.3, 
+                xanchor="center",
+                x=0.5,
+                traceorder="normal",
+                )
             )
-        )
 
-    st.plotly_chart(fig, use_container_width=True)
-
-	# Offer the file download
+        st.plotly_chart(fig, use_container_width=True)
     
-		
-    # Create a BytesIO object
-    excel_data = BytesIO()
 
-    # Save the DataFrame to BytesIO as an Excel file
-    with pd.ExcelWriter(excel_data, engine='xlsxwriter') as writer:
-        for location in charge_locations:              
-            temp = filter_data(df, location, 0, percentile_choice)
-            temp.rename({'p': f'percentile_{percentile_choice}'})
-            temp.to_excel(writer, index=True, sheet_name = location[:15]+"_normaal_laden")
-            temp1 = filter_data(df, location, 1, percentile_choice)
-            temp1.rename({'p': f'percentile_{percentile_choice}'})
-            temp1.to_excel(writer, index=True, sheet_name = location[:15]+"_slim_laden")
-    # Set the BytesIO object's position to the start
-    excel_data.seek(0)
-          
-    st.download_button('Download data', excel_data, file_name='data_demand_plot.xlsx')
+        # Offer the file download
+        
+            
+        # Create a BytesIO object
+        excel_data = BytesIO()
 
+        # Save the DataFrame to BytesIO as an Excel file
+        with pd.ExcelWriter(excel_data, engine='xlsxwriter') as writer:
+            for location in charge_locations:              
+                temp, _ = filter_data(df, location, 0, percentile_choice)
+                temp.rename({'p': f'percentile_{percentile_choice}'})
+                temp.to_excel(writer, index=True, sheet_name = location[:15]+"_normaal_laden")
+                temp1, _ = filter_data(df, location, 1, percentile_choice)
+                temp1.rename({'p': f'percentile_{percentile_choice}'})
+                temp1.to_excel(writer, index=True, sheet_name = location[:15]+"_slim_laden")
+        # Set the BytesIO object's position to the start
+        excel_data.seek(0)
+            
+        st.download_button('Download data', excel_data, file_name='data_demand_plot.xlsx')
+    
+    else:
+        st.write('Er zijn geen mogelijkheden voor uw voertuigen om te laden. Daarom kan de vermogensvraag niet worden gevisualiseerd.')
 
 
 def download_excel(df):
@@ -763,8 +775,12 @@ def table_kosten(df, energiebelasting = 0.00321, laadprijs_snelweg = 0.74):
     kosten_diesel = sum(df['kosten_diesel']) 
     laadkosten_totaal = laadkosten_epex + laadkosten_snelweg # + energiebelasting_totaal
     totale_kms = sum(df['Afstand'])
-    kosten_per_km = laadkosten_totaal/totale_kms
-    kosten_diesel_per_km = kosten_diesel/totale_kms
+    try:
+        kosten_per_km = laadkosten_totaal/totale_kms
+        kosten_diesel_per_km = kosten_diesel/totale_kms
+    except ZeroDivisionError:
+        kosten_per_km = 0
+        kosten_diesel_per_km = 0
 
     return tabel, laadkosten_totaal, totale_kms, kosten_per_km, kosten_diesel, kosten_diesel_per_km
 
