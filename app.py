@@ -217,7 +217,7 @@ def aggregate_hourly_costs(df):
 # Functie voor het toevoegen van een extra regel als aan het einde van de rit de accu nog niet terug is volgeladen
 def bijladen_einde_rit(df, prices, laadvermogen = [44], battery = [540], aansluittijd = [600], type_voertuigen = 1):
     type_voertuig = int(np.minimum(df['Type voertuig'].min(), type_voertuigen)) - 1
-    
+
     battery = battery[type_voertuig]
     laadvermogen = laadvermogen[type_voertuig]
     aansluittijd = aansluittijd[type_voertuig]
@@ -344,7 +344,7 @@ def simulate(df2, zuinig = [1.26], laadvermogen = [44], aansluittijd = [600], ba
     df2['Laadtijd'] = np.where((df2['Activiteit'] == 'Rijden') | (df2['Afstand'] >= 3), 0, df2['Laadtijd']) # niet AC-laden tijdens rijden  		
 
     type_voertuig = np.minimum(int(df2['Type voertuig'].min()-1), type_voertuigen - 1)
-        
+    print(f'type voertuigen: {type_voertuigen}')
     battery = battery[type_voertuig]
     zuinig = zuinig[type_voertuig]
     laadvermogen = laadvermogen[type_voertuig]
@@ -441,18 +441,6 @@ def check_file(file):
         error_message = 'De sheet "laden" moet alleen een kolom "Activiteit" bevatten met de activiteiten waarvoor laden is toegestaan (zie nieuw template).'
         st.error(error_message)
         st.stop()
-			
-def get_params(file):
-    
-    df_params = pd.read_excel(file, sheet_name = 'parameters').set_index('naam')
-	
-    battery = df_params.loc['accu'].waarde
-    zuinig = df_params.loc['efficiency'].waarde
-    aansluittijd = df_params.loc['aansluittijd'].waarde
-    laadvermogen = df_params.loc['laadvermogen bedrijf'].waarde
-    laadvermogen_snel = df_params.loc['laadvermogen snelweg'].waarde
-	
-    return battery, zuinig, aansluittijd, laadvermogen, laadvermogen_snel
 
 @st.cache_data
 def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadvermogen_snel, nachtladen, activiteitenladen, snelwegladen, laadprijs_snelweg, type_voertuigen = 1):
@@ -578,7 +566,7 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     df['vertraging'] = np.where(df['bijladen_snel'] > 0, aansluittijd[0] + (3600*df['bijladen_snel']/laadvermogen_snel),0)
 
     # Voeg een extra regel toe voor ieder voertuig wanneer extra bijladen nodig is
-    df = df.groupby('Voertuig').apply(lambda g: bijladen_einde_rit(g, prices, laadvermogen = laadvermogen, battery = battery, aansluittijd = aansluittijd), include_groups = False)
+    df = df.groupby('Voertuig').apply(lambda g: bijladen_einde_rit(g, prices, laadvermogen = laadvermogen, battery = battery, aansluittijd = aansluittijd, type_voertuigen = type_voertuigen), include_groups = False)
     #df = df.reset_index(level=0, drop=True).reset_index()
     df = df.reset_index(level=1, drop=True).reset_index()
     df = df.drop('index', axis = 1)
@@ -932,7 +920,6 @@ def main():
         try:
             check_file(uploaded_file)
             laadvermogen_snel = 150
-            print('Er zijn verschillende typen voertuigen: '+ str(type_voertuigen))
             print('Start verwerking Excelbestand')
             df = process_excel_file(uploaded_file, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, laadvermogen_snel = laadvermogen_snel, nachtladen = nachtladen, activiteitenladen = activiteitenladen, snelwegladen = snelwegladen, laadprijs_snelweg = laadprijs_snelweg, type_voertuigen = type_voertuigen)
             #print(df)
