@@ -344,7 +344,7 @@ def simulate(df2, zuinig = [1.26], laadvermogen = [44], aansluittijd = [600], ba
     df2['Laadtijd'] = np.where((df2['Activiteit'] == 'Rijden') | (df2['Afstand'] >= 3), 0, df2['Laadtijd']) # niet AC-laden tijdens rijden  		
 
     type_voertuig = np.minimum(int(df2['Type voertuig'].min()-1), type_voertuigen - 1)
-    print(f'type voertuigen: {type_voertuigen}')
+
     battery = battery[type_voertuig]
     zuinig = zuinig[type_voertuig]
     laadvermogen = laadvermogen[type_voertuig]
@@ -728,7 +728,7 @@ def download_template():
  
     st.download_button('Download Template', bytes_data, file_name='template.xlsx')
 
-def table_kosten(df, energiebelasting = 0.00321, laadprijs_snelweg = 0.74):
+def table_kosten(df, energiebelasting = 0.00321, laadprijs_snelweg = 0.74, type_voertuigen = 1, verbruik_diesel = [25, 18, 8]):
     
     # Let op: energiebelasting is afhankelijk van jaarverbruik: https://www.belastingdienst.nl/wps/wcm/connect/bldcontentnl/belastingdienst/zakelijk/overige_belastingen/belastingen_op_milieugrondslag/energiebelasting/
     laadkosten_epex = sum(df['Laadkosten (EUR)'])
@@ -750,6 +750,8 @@ def table_kosten(df, energiebelasting = 0.00321, laadprijs_snelweg = 0.74):
     prices_diesel = pd.read_excel(diesel_path, engine='openpyxl')
     prices_diesel['Datum'] = pd.to_datetime(prices_diesel["Datum"])
     df['Datum'] = pd.to_datetime(df['Datum'])
+    
+    # Neem het gemiddelde van de laatste 10 weken aan als er geen dieselprijs gekoppeld kan worden
     price_diesel_avg = prices_diesel["Dieselprijs"].tail(70).mean().item()
     
     df = pd.merge(df, prices_diesel, on = 'Datum', how = 'left')
@@ -758,11 +760,42 @@ def table_kosten(df, energiebelasting = 0.00321, laadprijs_snelweg = 0.74):
     mask = df["Dieselprijs"].isna()
     df.loc[mask, "Dieselprijs"] = price_diesel_avg
     
-    df['kosten_diesel']  = df['Dieselprijs']*df['Afstand']*25/100 # Aanname is een verbruik van 25L/100 km
+    # Vermenigvuldig dieselprijs met verbruik van een diesel.
+    # Aannames:
+    # Vrachtwagen: 25L/100km
+    # Bakwagen: 18L/100km (op basis van de ratio e-verbruik bakwagen/e-verbruik vrachtwagen)
+    # Bestelwagen: 8L/100km (op basis van de ratio e-verbruik bestelwagen/e-verbruik vrachtwagen)
+    df['Kosten diesel']  = df.apply(lambda row: row['Dieselprijs']*row['Afstand']*verbruik_diesel[row['Type voertuig']-1]/100, axis=1)
+
+    voertuigen = pd.DataFrame({
+        'Type voertuig': [1,2,3],
+        'Voertuig': ['Trekker-oplegger (N3)', 'Bakwagen (N2)', 'Bestelwagen (N1)'],
+        'Aanname verbruik': verbruik_diesel
+    }).set_index('Type voertuig')
+
+    tab_comp = df.groupby('Type voertuig').agg({'Afstand': 'sum',
+                                                         'bijladen': 'sum', 
+                                                         'bijladen_snel': 'sum', 
+                                                         'Laadkosten (EUR)': 'sum', 
+                                                         'Laadkosten_snel (EUR)': 'sum', 
+                                                         'Kosten diesel': 'sum'})
     
-    kosten_diesel = sum(df['kosten_diesel']) 
+    tab_comp['Laadvraag (kWh)'] = tab_comp['bijladen'] + tab_comp['bijladen_snel']
+    tab_comp['Kosten elektrisch'] = tab_comp['Laadkosten (EUR)'] + tab_comp['Laadkosten_snel (EUR)']
+
+    #Let op delen door 0 fouten
+    tab_comp['Laadkosten per km'] = tab_comp['Kosten elektrisch']/tab_comp['Afstand']
+    tab_comp['Dieselkosten per km'] = tab_comp['Kosten diesel']/tab_comp['Afstand']
+
+    tab_comp = tab_comp.join(voertuigen, how = 'left').reset_index()
+
+    tab_comp = tab_comp[['Voertuig', 'Afstand', 'Laadvraag (kWh)', 'Kosten elektrisch', 'Kosten diesel', 'Aanname verbruik']]
+    tab_comp = tab_comp.rename({'Afstand': 'Afstand (km)'}, axis = 1)
+
+    kosten_diesel = sum(df['Kosten diesel']) 
     laadkosten_totaal = laadkosten_epex + laadkosten_snelweg # + energiebelasting_totaal
     totale_kms = sum(df['Afstand'])
+
     try:
         kosten_per_km = laadkosten_totaal/totale_kms
         kosten_diesel_per_km = kosten_diesel/totale_kms
@@ -770,7 +803,7 @@ def table_kosten(df, energiebelasting = 0.00321, laadprijs_snelweg = 0.74):
         kosten_per_km = 0
         kosten_diesel_per_km = 0
 
-    return tabel, laadkosten_totaal, totale_kms, kosten_per_km, kosten_diesel, kosten_diesel_per_km
+    return tabel, laadkosten_totaal, totale_kms, kosten_per_km, kosten_diesel, kosten_diesel_per_km, tab_comp
 
 def format_nl_smart(x, decimals = 2):
     import locale
@@ -935,11 +968,17 @@ def main():
             plot_demand(df, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, laadvermogen_snel = laadvermogen_snel, type_voertuigen = type_voertuigen)
             print('Eind plot demand')
 
-            st.subheader('Laadkosten elektrisch vervoer: €' + f"{format_nl_smart(table_kosten(df)[1],0)}")
-
+            st.subheader('Brandstofkosten: Elektrisch = €' + f"{format_nl_smart(table_kosten(df)[1],0)}" + ' | Diesel = €' + f"{format_nl_smart(table_kosten(df)[4],0)}")
             st.dataframe(table_kosten(df, laadprijs_snelweg = laadprijs_snelweg)[0], hide_index=True)
             st.write(f'De laadkosten voor het uitvoeren van {format_nl_smart(table_kosten(df)[2],0)} kilometers zijn €{format_nl_smart(table_kosten(df)[1],0)}. Dat is €{format_nl_smart(table_kosten(df)[3],3)} per km.')
-            st.write(f'De dieselkosten voor het uitvoeren van deze ritten zijn €{format_nl_smart(table_kosten(df)[4],0)}. Dat is €{format_nl_smart(table_kosten(df)[5],3)} per km. Hierbij gaan wij uit van een verbruik van 25L/100km en de Gemiddelde Landelijke Adviesprijs voor diesel op de dag van de rit.')
+            st.write(f'De dieselkosten voor het uitvoeren van deze ritten zijn €{format_nl_smart(table_kosten(df)[4],0)}. Dat is €{format_nl_smart(table_kosten(df)[5],3)} per km. Hieronder splitsen we deze kosten uit naar type voertuig. Deze tabel bevat ook onze aannames over het verbruik van dieselvoertuigen. Voor de dieselprijs gaan we uit van de Gemiddelde Landelijke Adviesprijs (GLA).')
+            st.dataframe(table_kosten(df, laadprijs_snelweg = laadprijs_snelweg)[6].style.format({
+                'Afstand': lambda x: format_nl_smart(x, 0),
+                'Laadvraag (kWh)': lambda x: format_nl_smart(x, 0),
+                'Kosten elektrisch': lambda x: '€' + format_nl_smart(x, 0),
+                'Kosten diesel': lambda x: '€' + format_nl_smart(x, 0),
+                'Aanname verbruik': lambda x: format_nl_smart(x,0) + 'L/100km'
+                }), hide_index=True)
             st.write('Let op: dit betreft uitsluitend de kale brandstofkosten, voor een complete vergelijking tussen elektrisch vervoer en dieselvrachtwagens raden wij aan gebruik te maken van een tool die de Total Cost of Ownership (TCO) berekent.')
             st.markdown("[TCO-tool Topsector Logistiek](https://topsectorlogistiek.nl/tco-vracht/)")
             
