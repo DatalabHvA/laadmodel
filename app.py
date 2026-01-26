@@ -789,7 +789,7 @@ def table_kosten(df, energiebelasting = 0.00321, laadprijs_snelweg = 0.74, type_
 
     tab_comp = tab_comp.join(voertuigen, how = 'left').reset_index()
 
-    tab_comp = tab_comp[['Voertuig', 'Afstand', 'Laadvraag (kWh)', 'Kosten elektrisch', 'Kosten diesel', 'Aanname verbruik']]
+    tab_comp = tab_comp[['Voertuig', 'Afstand', 'Laadvraag (kWh)', 'Kosten elektrisch', 'Kosten diesel']]
     tab_comp = tab_comp.rename({'Afstand': 'Afstand (km)'}, axis = 1)
 
     kosten_diesel = sum(df['Kosten diesel']) 
@@ -971,9 +971,9 @@ def main():
             st.subheader('Brandstofkosten: Elektrisch = €' + f"{format_nl_smart(table_kosten(df)[1],0)}" + ' | Diesel = €' + f"{format_nl_smart(table_kosten(df)[4],0)}")
             st.dataframe(table_kosten(df, laadprijs_snelweg = laadprijs_snelweg)[0], hide_index=True)
             st.write(f'De laadkosten voor het uitvoeren van {format_nl_smart(table_kosten(df)[2],0)} kilometers zijn €{format_nl_smart(table_kosten(df)[1],0)}. Dat is €{format_nl_smart(table_kosten(df)[3],3)} per km.')
-            st.write(f'De dieselkosten voor het uitvoeren van deze ritten zijn €{format_nl_smart(table_kosten(df)[4],0)}. Dat is €{format_nl_smart(table_kosten(df)[5],3)} per km. Hieronder splitsen we deze kosten uit naar type voertuig. Deze tabel bevat ook onze aannames over het verbruik van dieselvoertuigen. Voor de dieselprijs gaan we uit van de Gemiddelde Landelijke Adviesprijs (GLA).')
+            st.write(f'De dieselkosten voor het uitvoeren van deze ritten zijn €{format_nl_smart(table_kosten(df)[4],0)}. Dat is €{format_nl_smart(table_kosten(df)[5],3)} per km. Hieronder splitsen we deze kosten uit naar type voertuig. Deze tabel bevat ook onze aannames over het verbruik van dieselvoertuigen. Voor de dieselprijs gaan we uit van de Gemiddelde Landelijke Adviesprijs (GLA) en we gaan uit van een verbruik van 25L/100km.')
             st.dataframe(table_kosten(df, laadprijs_snelweg = laadprijs_snelweg)[6].style.format({
-                'Afstand': lambda x: format_nl_smart(x, 0),
+                'Afstand (km)': lambda x: format_nl_smart(x, 0),
                 'Laadvraag (kWh)': lambda x: format_nl_smart(x, 0),
                 'Kosten elektrisch': lambda x: '€' + format_nl_smart(x, 0),
                 'Kosten diesel': lambda x: '€' + format_nl_smart(x, 0),
