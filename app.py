@@ -860,6 +860,18 @@ def main():
     
     
     st.title('Laadmodel ZEC')
+
+    with open("Handleiding_laadmodel_ZEC_v2_0_0.pdf", "rb") as f:
+            pdf_bytes = f.read()
+
+        # Create the download button
+    st.download_button(
+        label="Download Handleiding",
+        data=pdf_bytes,
+        file_name="Handleiding_laadmodel_ZEC_v2_0_0.pdf",
+        mime="application/pdf"
+    )
+    
     st.write("De resultaten van deze tool zijn informatief.  \nDe verstrekte informatie kan onvolledig of niet geheel juist zijn.  \nAan de resultaten van deze tool kunnen geen rechten worden ontleend.")
 
     # Parameter setting
