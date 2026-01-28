@@ -807,15 +807,17 @@ def table_kosten(df, energiebelasting = 0.00321, laadprijs_snelweg = 0.74, type_
 
 def format_nl_smart(x, decimals = 2):
     import locale
-    locale.setlocale(locale.LC_ALL, 'nl_NL.UTF-8')
+    locale.setlocale(locale.LC_ALL, 'C')
     if pd.isna(x):
         return ""
     if float(x).is_integer():
         # Geheel getal → geen decimalen
-        return locale.format_string("%d", int(x), grouping=True)
+        x = float(x)
+        return f'{int(x):,}'.replace(",", ".")
     else:
-        # Niet-geheel → 2 decimalen
-        return locale.format_string(f"%.{decimals}f", x, grouping=True)
+        fmt = f"{{x:,.{decimals}f}}"
+        s = fmt.format(x=x)
+        return s.replace(",", "X").replace(".", ",").replace("X", ".")
 
 def upload_price_data(API_TOKEN, df):
     
@@ -858,19 +860,22 @@ def upload_price_data(API_TOKEN, df):
 
 def main():
     
-    
-    st.title('Laadmodel ZEC')
-
-    with open("Handleiding_laadmodel_ZEC_v2_0_0.pdf", "rb") as f:
+    cols = st.columns([0.5, 0.3, 0.2], vertical_alignment = "bottom")
+    with cols[0]:
+        st.title('Laadmodel ZEC')
+    with cols[1]:
+        with open("Handleiding_laadmodel_ZEC_v2_0_0.pdf", "rb") as f:
             pdf_bytes = f.read()
-
-        # Create the download button
-    st.download_button(
-        label="Download Handleiding",
-        data=pdf_bytes,
-        file_name="Handleiding_laadmodel_ZEC_v2_0_0.pdf",
-        mime="application/pdf"
-    )
+    
+            # Create the download button
+        st.download_button(
+            label="Download Handleiding",
+            data=pdf_bytes,
+            file_name="Handleiding_laadmodel_ZEC_v2_0_0.pdf",
+            mime="application/pdf"
+        )
+    with cols[2]:
+        st.write('v2.0.0, 30-1-2026')
     
     st.write("De resultaten van deze tool zijn informatief.  \nDe verstrekte informatie kan onvolledig of niet geheel juist zijn.  \nAan de resultaten van deze tool kunnen geen rechten worden ontleend.")
 
