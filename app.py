@@ -885,7 +885,7 @@ def main():
     st.write('Hoeveel verschillende typen voertuigen heeft u? U kunt uw voertuigen opdelen in trekker-opleggers, bakwagens en/of bestelwagens')
     
     type_voertuigen = 1
-    type_voertuigen = st.slider("Aantal typen voertuigen", min_value = 1, max_value = 3)
+    type_voertuigen = st.slider("Aantal typen voertuigen", min_value = 1, max_value = 3, help = 'Wanneer u kiest voor 1 type voertuigen, hebben alle voertuigen binnen het wagenpark dezelfde accucapaciteit en hetzelfde verbruik. U kunt meerdere typen aanmaken door deze slider naar 2 of 3 te verschuiven. Vervolgens geeft u in het Exceltemplate aan of een voertuig tot type 1, 2 of 3 behoort.')
     
     st.write('Gebruik de onderstaande sliders om aannames in te vullen waar het laadmodel mee rekent. De standaardwaarden zijn in samenwerking met TNO bepaald in mei 2025.')
     
@@ -911,10 +911,10 @@ def main():
     aansluittijd = []
         
     if type_voertuigen >= 1:
-        battery_N3 = col[1].slider("Trekker-oplegger (N3)", 0, 800, 540, key = 'batteryN3')
-        zuinig_N3 = col1[1].slider("Trekker-oplegger (N3)", 0.0, 2.5, 1.26, key = 'zuinigN3')
-        laadvermogen_N3 = col2[1].slider("Trekker-oplegger (N3)", 0, 300, 44, key = 'laadvermogenN3')
-        aansluittijd_N3 = 60*col3[1].slider("Trekker-oplegger (N3)", 0, 20, 10, key = 'aansluittijdN3')
+        battery_N3 = col[1].slider("Trekker-oplegger (N3)", 0, 800, 540, key = 'batteryN3', help = 'Vul hier de accucapaciteit in van het voertuig in kWh.')
+        zuinig_N3 = col1[1].slider("Trekker-oplegger (N3)", 0.0, 2.5, 1.26, key = 'zuinigN3', help = 'Vul hier het verbruik van het voertuig in. Dit getal geeft aan hoeveel kWh aan elektriciteit er verbruikt wordt per gereden km.')
+        laadvermogen_N3 = col2[1].slider("Trekker-oplegger (N3)", 0, 300, 44, key = 'laadvermogenN3', help = 'Vul hier het vermogen in waarmee dit voertuig kan laden aan een laadpaal bij de thuislocatie. Dit vermogen geeft aan hoeveel kWh de vrachtwagen in 1 uur kan laden.')
+        aansluittijd_N3 = 60*col3[1].slider("Trekker-oplegger (N3)", 0, 20, 10, key = 'aansluittijdN3', help = 'Vul hier de tijd in die het kost om dit voertuig aan een laadpaal aan te sluiten. Neem hierbij ook het inparkeren in acht.')
         
         battery.append(battery_N3)
         zuinig.append(zuinig_N3)
@@ -948,7 +948,7 @@ def main():
     col4 = st.columns([1, 3])
     col4[0].write(' ')
     col4[0].write('**Vaste elektriciteitsprijs laden snelweg (€/kWh)**')
-    laadprijs_snelweg = col4[1].slider("", min_value = 0.0, max_value = 2.0, value = 0.74)
+    laadprijs_snelweg = col4[1].slider("", min_value = 0.0, max_value = 2.0, value = 0.74, help = 'Vul hier de laadprijs in die zou gelden als uw voertuigen niet op de eigen vestiging of bij klanten laden, maar op de snelweg. Voor deze kosten wordt een vaste prijs aangehouden door het model.')
 
     # Download template button
     st.header('Uploaden rittendata')
@@ -957,13 +957,13 @@ def main():
     download_template()
 
     # File upload
-    uploaded_file = st.file_uploader('Upload Excelbestand met rittendata', type=['xlsx'])
+    uploaded_file = st.file_uploader('Upload Excelbestand met rittendata', type=['xlsx'], help = 'De data die u aanlevert wordt niet opgeslagen door de makers van deze tool')
 
     # TODO: besluiten of nachtladen wordt gebruikt
-    nachtladen = st.checkbox('Altijd opladen tijdens overnachting op alle locaties')
+    nachtladen = st.checkbox('Altijd opladen tijdens overnachting op alle locaties', help = 'Wanneer deze optie wordt geselecteerd, zal een vrachtwagen laden wanneer hij langer dan 6 uur stilstaat op een locatie.')
     #nachtladen = 0
-    activiteitenladen = st.checkbox('Laden mogelijk op alle locaties')
-    snelwegladen = st.checkbox('Extra snelladen toestaan langs de snelweg')
+    activiteitenladen = st.checkbox('Laden mogelijk op alle locaties', help = 'Wanneer deze optie wordt geselecteerd, zal laden niet alleen mogelijk zijn op de door u in het Excelbestand aangegeven locaties, maar op alle locaties.')
+    snelwegladen = st.checkbox('Extra snelladen toestaan langs de snelweg', help = 'Wanneer deze optie wordt geselecteerd, zal het model tekorten opvangen door vrachtwagens extra aan de snelweg op te laden. Let op dat de planning hierdoor niet wordt aangepast, er wordt alleen extra laadenergie tijdens een rijactiviteit berekend.')
     
 
     if uploaded_file is not None:
