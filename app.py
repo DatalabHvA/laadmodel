@@ -72,18 +72,20 @@ def match_prices(row, prices):
 
 @st.cache_data
 # Functie voor het koppelen van prijzen aan het df
-def add_day_ahead_prices(df, prices, aansluittijd = [600]):    
+def add_day_ahead_prices(df, prices, aansluittijd):    
     
     #type_voertuig = int(np.minimum(df['Type voertuig'].min(), type_voertuigen)) - 1
     #aansluittijd = aansluittijd[type_voertuig]
         
     df_laden = df[df['Laden']==1]
+    df_laden = pd.concat((match_prices(row, prices) for _, row in df_laden.iterrows()), ignore_index=True)
+
     if df_laden.empty:
-        df['Aansluittijd'] = np.nan
+        df['Aansluittijd'] = df.apply(lambda g: min(aansluittijd[g['Type voertuig']-1], (g['Einddatum en -tijd'] - g['Begindatum en -tijd']).total_seconds()), axis = 1)
         df['price_eur_mwh'] = np.nan
         result = df
+    
     else:
-        df_laden = pd.concat((match_prices(row, prices) for _, row in df_laden.iterrows()), ignore_index=True)
         df_laden['Aansluittijd'] = df_laden.apply(lambda g: min(aansluittijd[g['Type voertuig']-1], (g['datetime_CET_end'] - g['Begindatum en -tijd']).total_seconds(), max(aansluittijd[g['Type voertuig']-1] - (g['datetime_CET'] - g['Begindatum en -tijd']).total_seconds(), 0)), axis = 1)
         df_laden['Begindatum en -tijd'] = df_laden[['Begindatum en -tijd', 'datetime_CET']].max(axis = 1)
         df_laden['Einddatum en -tijd'] = df_laden[['Einddatum en -tijd', 'datetime_CET_end']].min(axis = 1)
@@ -512,6 +514,7 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     datums_uniek = unique_dates(df)
 
     if variable_price:
+        future_dates = False
         for i in datums_uniek:
             i = pd.Timestamp(i).tz_localize(None)
             if not (prices['datetime_CET'].dt.date == i.date()).any():
@@ -528,8 +531,11 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
                 # Wanneer API fout geeft, throw exception
                 except:
                     print(f'No day ahead prices available for {i}')
+                    future_dates = True
         github_token = st.secrets["api_keys"]["gh_token"]
         upload_price_data(github_token, prices)
+        
+        st.warning("Let op: de aangeleverde rittendata bevat (toekomstige) datums waarvoor nog geen EPEX-prijzen beschikbaar zijn. Kosteninformatie is onvolledig.")
     else:
         # Werk met een vaste elektriciteitsprijs, gegeven door het bedrijf of een standaardwaarde
         print('fixed_prices')
@@ -544,6 +550,8 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     
     # Prijzen mergen aan het dataframe
     df = add_day_ahead_prices(df, prices, aansluittijd)
+    
+    
     df['Duur'] = (df['Einddatum en -tijd'] - df['Begindatum en -tijd']).apply(lambda x: x.total_seconds())
     df_locatie = pd.read_excel(file, sheet_name = 'laadlocaties').assign(thuis = 1)
     df = df.merge(df_locatie, how = 'left', on = 'Positie')
@@ -554,7 +562,7 @@ def process_excel_file(file, battery, zuinig, aansluittijd, laadvermogen, laadve
     df_results = (df.
     			groupby(['Voertuig']).
     			apply(lambda g: simulate(g, battery = battery, zuinig = zuinig, aansluittijd = aansluittijd, laadvermogen = laadvermogen, nachtladen = nachtladen, activiteitenladen = activiteitenladen, type_voertuigen = type_voertuigen, snelwegladen = snelwegladen)))
-
+    
     df = df.merge(df_results, on = 'index', how = 'left')
     
     # Groepeer op activiteit_id om gesplitste rijen voor uur/kwartierprijzen terug te brengen naar 1 activiteit
