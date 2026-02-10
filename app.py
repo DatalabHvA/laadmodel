@@ -879,11 +879,11 @@ def main():
         st.download_button(
             label="Download Handleiding",
             data=pdf_bytes,
-            file_name="Handleiding_laadmodel_ZEC_v2_0_0.pdf",
+            file_name="Handleiding_laadmodel_ZEC_v2_0_1.pdf",
             mime="application/pdf"
         )
     with cols[2]:
-        st.write('v2.0.0, 30-1-2026')
+        st.write('v2.0.1, 09-02-2026')
     
     st.write("De resultaten van deze tool zijn informatief.  \nDe verstrekte informatie kan onvolledig of niet geheel juist zijn.  \nAan de resultaten van deze tool kunnen geen rechten worden ontleend.")
 
